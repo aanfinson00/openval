@@ -1,6 +1,6 @@
-# proforma-engine
+# OpenVal
 
-Open-source commercial real estate underwriting — lease-level cash flow modeling on top of [rangekeeper](https://github.com/daniel-fink/rangekeeper).
+Open-source commercial real estate underwriting — lease-level cash flow modeling, expense recoveries, debt, reversion, and IRR. An open alternative to [Argus Enterprise](https://www.altusgroup.com/argus/).
 
 ## Why
 

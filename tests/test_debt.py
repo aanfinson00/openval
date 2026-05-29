@@ -4,7 +4,7 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
-from proforma_engine import Loan, amortize_loan
+from openval import Loan, amortize_loan
 
 
 MONTHS = pd.date_range(start="2026-01-01", end="2031-01-01", freq="MS")

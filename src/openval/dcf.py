@@ -20,10 +20,10 @@ from typing import Optional
 import numpy_financial as npf
 import pandas as pd
 
-from proforma_engine.cashflow import project_rent_roll
-from proforma_engine.debt import amortize_loan
-from proforma_engine.property import Property
-from proforma_engine.recoveries import project_recoveries
+from openval.cashflow import project_rent_roll
+from openval.debt import amortize_loan
+from openval.property import Property
+from openval.recoveries import project_recoveries
 
 
 @dataclass(frozen=True)

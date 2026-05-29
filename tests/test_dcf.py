@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from proforma_engine import (
+from openval import (
     ExpenseStructure,
     Lease,
     Loan,

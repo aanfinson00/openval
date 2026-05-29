@@ -16,7 +16,7 @@ from datetime import date
 
 import pandas as pd
 
-from proforma_engine.lease import Lease, RentStep
+from openval.lease import Lease, RentStep
 
 
 def project_lease(lease: Lease, start: date, end: date) -> pd.DataFrame:

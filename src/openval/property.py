@@ -8,8 +8,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
 
-from proforma_engine.debt import Loan
-from proforma_engine.lease import Lease
+from openval.debt import Loan
+from openval.lease import Lease
 
 
 class Property(BaseModel):

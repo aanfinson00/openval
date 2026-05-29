@@ -19,7 +19,7 @@ from datetime import date
 
 import pandas as pd
 
-from proforma_engine.lease import ExpenseStructure, Lease
+from openval.lease import ExpenseStructure, Lease
 
 
 def project_recoveries(

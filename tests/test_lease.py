@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from proforma_engine import ExpenseStructure, Lease, PercentageRent, RentStep
+from openval import ExpenseStructure, Lease, PercentageRent, RentStep
 
 
 def _nnn_lease(**overrides) -> Lease:

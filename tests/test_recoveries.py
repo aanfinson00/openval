@@ -4,7 +4,7 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
-from proforma_engine import (
+from openval import (
     ExpenseStructure,
     Lease,
     RentStep,

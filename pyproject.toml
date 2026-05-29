@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "proforma-engine"
-version = "0.0.1"
-description = "Open-source commercial real estate underwriting — lease-level cash flow modeling on top of rangekeeper"
+name = "openval"
+version = "0.1.0"
+description = "Open-source commercial real estate underwriting — lease-level cash flow modeling, recoveries, debt, and IRR"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -42,10 +42,10 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/aanfinson00/proforma-engine"
+Repository = "https://github.com/aanfinson00/openval"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/proforma_engine"]
+packages = ["src/openval"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
