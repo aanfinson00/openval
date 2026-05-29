@@ -17,14 +17,14 @@ This project fills that gap. The goal is an open, scriptable, lease-level CRE un
 - [x] Lease data model (NNN / MG / FSG, base rent steps, free rent, TI/LC, percentage rent, renewal options)
 - [x] Lease cashflow projector (monthly base rent, step-ups, free rent abatement, TI, LC)
 - [x] Rent roll aggregation (sum many leases onto a common timeline)
+- [x] Expense recovery engine (NNN, MG base year, MG expense stop, FSG, annual recovery cap)
 - [ ] Rent roll I/O (CSV/Excel import)
-- [ ] Expense recovery engine (CAM/tax/insurance pass-through, base years, stops, gross-ups, caps)
 - [ ] rangekeeper integration (feed lease cashflows into NOI → NCF → reversion → IRR)
 - [ ] Demo notebook: small office building, mixed lease structures, debt, reversion
 
 ## Phase 2+
 
-Market leasing assumptions on rollover, partition reports, multi-property portfolio rollup, Argus `.aeex` file import.
+Market leasing assumptions on rollover, partition reports, multi-property portfolio rollup, gross-up for partial occupancy, percentage rent against actual sales, Argus `.aeex` file import.
 
 ## Install
 

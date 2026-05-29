@@ -6,6 +6,7 @@ from proforma_engine.lease import (
     RenewalOption,
     RentStep,
 )
+from proforma_engine.recoveries import project_recoveries
 
 __all__ = [
     "ExpenseStructure",
@@ -14,7 +15,8 @@ __all__ = [
     "RenewalOption",
     "RentStep",
     "project_lease",
+    "project_recoveries",
     "project_rent_roll",
 ]
 
-__version__ = "0.0.2"
+__version__ = "0.0.3"
