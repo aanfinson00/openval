@@ -32,6 +32,8 @@ pip install -e ".[dev]"
 pytest
 ```
 
+The `engine` extra (`pip install -e ".[dev,engine]"`) pulls in rangekeeper, which currently pins Python `>=3.10,<3.13`. Until that loosens, run the rangekeeper-integrated path in a Python 3.12 venv. The lease layer itself works on 3.11+.
+
 ## License
 
 MIT. rangekeeper is MPL-2.0 and is depended on as an unmodified library.
