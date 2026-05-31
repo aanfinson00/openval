@@ -11,6 +11,7 @@ from openval.lease import (
 )
 from openval.property import Property
 from openval.recoveries import project_recoveries
+from openval.reporting import mark_to_market, rent_roll_summary
 from openval.sensitivity import sensitivity
 
 __all__ = [
@@ -26,10 +27,12 @@ __all__ = [
     "Reversion",
     "UnderwritingResult",
     "amortize_loan",
+    "mark_to_market",
     "project_lease",
     "project_property",
     "project_recoveries",
     "project_rent_roll",
+    "rent_roll_summary",
     "sensitivity",
 ]
 
