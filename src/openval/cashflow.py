@@ -68,6 +68,10 @@ def project_lease(lease: Lease, start: date, end: date) -> pd.DataFrame:
         annual_psf = float(_active_psf(lease.base_rent_steps, m_date))
         base_rent.loc[ts] = annual_psf * area_sf / 12.0
 
+    percentage_rent_series = pd.Series(0.0, index=months)
+    if lease.percentage_rent is not None and lease.annual_sales:
+        percentage_rent_series = _project_percentage_rent(lease, months)
+
     if lease.free_rent_months > 0:
         free_window = pd.date_range(
             start=_to_timestamp(lease.start_date),
@@ -95,10 +99,58 @@ def project_lease(lease: Lease, start: date, end: date) -> pd.DataFrame:
             "free_rent_abatement": free_rent_abatement,
             "ti": ti,
             "lc": lc,
+            "percentage_rent": percentage_rent_series,
         }
     )
     df["net_rent"] = df["base_rent"] + df["free_rent_abatement"]
     return df
+
+
+def _project_percentage_rent(lease: "Lease", months: pd.DatetimeIndex) -> pd.Series:
+    """Compute monthly percentage rent for a lease with sales projections.
+
+    Annual percentage rent = max(0, (sales − breakpoint) × rate). Breakpoint
+    is the lease-specified unnatural amount when ``natural_breakpoint=False``,
+    or the natural breakpoint (annual base rent / rate) computed from each
+    year's active rent step otherwise. Monthly = annual / 12 over the active
+    months of that year only.
+    """
+    pr = lease.percentage_rent
+    rate = float(pr.rate)
+    area_sf = float(lease.area_sf)
+    out = pd.Series(0.0, index=months)
+    if pr is None:
+        return out
+
+    by_year_months: dict[int, list[pd.Timestamp]] = {}
+    for ts in months:
+        m_date = ts.date()
+        if m_date < lease.start_date or m_date >= lease.end_date:
+            continue
+        by_year_months.setdefault(ts.year, []).append(ts)
+
+    for year, ts_list in by_year_months.items():
+        sales = float(lease.annual_sales.get(year, Decimal(0)))
+        if sales <= 0:
+            continue
+
+        # Resolve breakpoint
+        if pr.natural_breakpoint or pr.breakpoint_annual is None:
+            # Year's active rent step at the first active month
+            psf = float(_active_psf(lease.base_rent_steps, ts_list[0].date()))
+            annual_base = psf * area_sf
+            breakpoint = annual_base / rate if rate > 0 else float("inf")
+        else:
+            breakpoint = float(pr.breakpoint_annual)
+
+        annual_pr = max(0.0, (sales - breakpoint) * rate)
+        if annual_pr == 0:
+            continue
+        per_month = annual_pr / len(ts_list)
+        for ts in ts_list:
+            out.loc[ts] = per_month
+
+    return out
 
 
 def project_rent_roll(leases: list[Lease], start: date, end: date) -> pd.DataFrame:
@@ -112,7 +164,7 @@ def project_rent_roll(leases: list[Lease], start: date, end: date) -> pd.DataFra
         return pd.DataFrame(
             0.0,
             index=months,
-            columns=["base_rent", "free_rent_abatement", "ti", "lc", "net_rent"],
+            columns=["base_rent", "free_rent_abatement", "ti", "lc", "percentage_rent", "net_rent"],
         )
 
     weighted_segments: list[WeightedLease] = []

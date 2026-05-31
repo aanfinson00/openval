@@ -126,7 +126,7 @@ def test_rent_roll_sums_leases():
 def test_empty_rent_roll_returns_zero_frame():
     df = project_rent_roll([], start=date(2026, 1, 1), end=date(2027, 1, 1))
     assert (df["base_rent"] == 0.0).all()
-    assert list(df.columns) == ["base_rent", "free_rent_abatement", "ti", "lc", "net_rent"]
+    assert list(df.columns) == ["base_rent", "free_rent_abatement", "ti", "lc", "percentage_rent", "net_rent"]
 
 
 def test_projection_window_clips_lease():
@@ -148,5 +148,5 @@ def test_projection_window_clips_lease():
 def test_returns_dataframe_with_expected_columns():
     df = project_lease(_lease(), start=date(2026, 1, 1), end=date(2031, 1, 1))
     assert isinstance(df, pd.DataFrame)
-    assert set(df.columns) == {"base_rent", "free_rent_abatement", "ti", "lc", "net_rent"}
+    assert set(df.columns) == {"base_rent", "free_rent_abatement", "ti", "lc", "percentage_rent", "net_rent"}
     assert isinstance(df.index, pd.DatetimeIndex)

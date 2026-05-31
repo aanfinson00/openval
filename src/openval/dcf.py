@@ -123,6 +123,10 @@ def project_property(prop: Property) -> UnderwritingResult:
     cf_full = pd.DataFrame(index=months_all)
     cf_full["gross_rent"] = rent_roll["base_rent"]
     cf_full["free_rent_abatement"] = rent_roll["free_rent_abatement"]
+    # Percentage rent (retail / restaurant overage) — collected on top of base.
+    cf_full["percentage_rent"] = (
+        rent_roll["percentage_rent"] if "percentage_rent" in rent_roll.columns else 0.0
+    )
     # General vacancy + credit loss: applied to gross potential rent as
     # negative line items. Argus separates vacancy (lost rent from unleased
     # space) from credit loss (uncollected rent from leased space); we
@@ -135,6 +139,7 @@ def project_property(prop: Property) -> UnderwritingResult:
     cf_full["egi"] = (
         cf_full["gross_rent"]
         + cf_full["free_rent_abatement"]
+        + cf_full["percentage_rent"]
         + cf_full["general_vacancy"]
         + cf_full["credit_loss"]
         + cf_full["recoveries"]

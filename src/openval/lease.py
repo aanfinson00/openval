@@ -89,6 +89,9 @@ class Lease(BaseModel):
     recovery_cap_pct: Optional[Decimal] = Field(default=None, ge=0)
 
     percentage_rent: Optional[PercentageRent] = None
+    # Year → projected gross sales (only relevant when percentage_rent is set).
+    # Keys are calendar years; values are annual sales for that year.
+    annual_sales: dict[int, Decimal] = Field(default_factory=dict)
 
     renewal_options: list[RenewalOption] = Field(default_factory=list)
 
