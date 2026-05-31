@@ -231,6 +231,61 @@ def test_forward_basis_irr_exceeds_trailing_under_escalation():
     assert forward_result.unlevered_irr > trailing_result.unlevered_irr
 
 
+def test_general_vacancy_reduces_egi():
+    """5% general vacancy on a 1.5M gross-rent year → 75k vacancy deduction."""
+    prop = _full_building_nnn()
+    with_vac = Property(**{**prop.model_dump(), "general_vacancy_pct": Decimal("0.05")})
+    result = project_property(with_vac)
+    year_1 = result.cashflows.loc["2026-01-01":"2026-12-31"]
+    assert year_1["gross_rent"].sum() == pytest.approx(1_500_000.0, rel=1e-6)
+    assert year_1["general_vacancy"].sum() == pytest.approx(-75_000.0, rel=1e-6)
+    # EGI = gross + abatement + vacancy + recoveries; NOI = EGI - opex.
+    assert year_1["noi"].sum() == pytest.approx(1_425_000.0, rel=1e-6)
+
+
+def test_credit_loss_reduces_egi():
+    """1% credit loss on 1.5M gross rent → 15k deduction."""
+    prop = _full_building_nnn()
+    with_cl = Property(**{**prop.model_dump(), "credit_loss_pct": Decimal("0.01")})
+    result = project_property(with_cl)
+    year_1 = result.cashflows.loc["2026-01-01":"2026-12-31"]
+    assert year_1["credit_loss"].sum() == pytest.approx(-15_000.0, rel=1e-6)
+    assert year_1["noi"].sum() == pytest.approx(1_485_000.0, rel=1e-6)
+
+
+def test_vacancy_and_credit_loss_compound():
+    """Both apply independently — 5% vacancy + 1% credit loss → 6% total deduction."""
+    prop = _full_building_nnn()
+    both = Property(
+        **{
+            **prop.model_dump(),
+            "general_vacancy_pct": Decimal("0.05"),
+            "credit_loss_pct": Decimal("0.01"),
+        }
+    )
+    result = project_property(both)
+    year_1 = result.cashflows.loc["2026-01-01":"2026-12-31"]
+    assert year_1["general_vacancy"].sum() == pytest.approx(-75_000.0, rel=1e-6)
+    assert year_1["credit_loss"].sum() == pytest.approx(-15_000.0, rel=1e-6)
+    assert year_1["noi"].sum() == pytest.approx(1_410_000.0, rel=1e-6)
+
+
+def test_zero_vacancy_default_preserves_legacy_noi():
+    """Default 0% vacancy/credit loss → NOI matches the baseline test exactly."""
+    baseline = project_property(_full_building_nnn())
+    explicit_zero = project_property(
+        Property(
+            **{
+                **_full_building_nnn().model_dump(),
+                "general_vacancy_pct": Decimal("0"),
+                "credit_loss_pct": Decimal("0"),
+            }
+        )
+    )
+    pd_series_equal = lambda a, b: a.equals(b) or (a - b).abs().max() < 1e-9
+    assert pd_series_equal(baseline.cashflows["noi"], explicit_zero.cashflows["noi"])
+
+
 def test_irr_default_matches_monthly_annualized():
     """result.unlevered_irr equals result.irr() with default convention."""
     result = project_property(_full_building_nnn())

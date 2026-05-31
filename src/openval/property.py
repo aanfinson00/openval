@@ -33,6 +33,16 @@ class Property(BaseModel):
     # after the hold ends.
     reversion_basis: ReversionBasis = Field(default="trailing")
 
+    # General vacancy: fraction of gross potential rent deducted each month as
+    # background vacancy (e.g. 0.05 = 5% vacancy assumption). Argus's
+    # "General Vacancy" — applied on top of (not instead of) absorption /
+    # turnover vacancy captured by MLA downtime. Set to 0 to disable.
+    general_vacancy_pct: Decimal = Field(default=Decimal("0"), ge=0, le=1)
+    # Credit loss: fraction of gross potential rent deducted for bad debt /
+    # collection loss. Industry rule of thumb is 0.5–1%. Argus's
+    # "Credit Loss" / "Collection Loss" line.
+    credit_loss_pct: Decimal = Field(default=Decimal("0"), ge=0, le=1)
+
     loan: Optional[Loan] = None
 
     @model_validator(mode="after")
