@@ -56,3 +56,28 @@ When adding a real field to Property / Lease / Loan / RentRollRow etc.:
 - **Market Leasing Assumptions** (`MarketLeasingAssumption`) attach to a `Lease` via `market_leasing_assumption`. When the lease expires inside the projection window, `expand_with_mla` in `cashflow.py` recursively branches into a renewal segment (weight = `renewal_probability`) and a new-tenant segment (weight = `1 − p`); each speculative child inherits the same MLA so rollover chains automatically. Cashflows + recoveries are summed across all weighted segments. Per-lease MLA today; v2 plans property-level named profiles (Argus MLP equivalent). Reimbursable recoveries during downtime are excluded (segment dropped); Argus has a toggle for this — TODO for v2.
 - **Vacancy + credit loss**: `Property.general_vacancy_pct` and `Property.credit_loss_pct` are fractions of gross potential rent applied as separate deductions to EGI (NOT to opex). Default 0 (no deduction). Compound additively with MLA downtime — they are conceptually independent (background vacancy vs absorption/turnover vacancy). For Argus-aligned single-source vacancy, set general_vacancy_pct=0 and rely on MLA downtime.
 - **I/O**: `openval.io.read_rent_roll_excel(path)` / `read_rent_roll_csv(path)` import a generic lease workbook (documented column schema; optional `rent_steps` sheet for escalations). `openval.io.read_avux_metadata(path)` parses Argus `.avux` package metadata (Summary.xml + Info.xml); the full Input.xml payload is encrypted at the Argus product level and is not readable without Argus's COM API — users should export `.aeex` from Argus for full deal import (the AEEX parser is the next Phase-2 work item).
+
+## Phase 3 additions
+
+- **Closing costs**: `Property.acquisition_costs_pct` is added to acquisition_price for the equity basis on both unlevered and levered IRR. Not financed by the loan.
+- **DSCR + Debt Yield**: trailing-12-month columns on the monthly cashflow DataFrame when a loan exists; populated with `pandas.NA` when no loan.
+- **Stabilized metrics**: `UnderwritingResult.stabilized_noi` (year-2 NOI), `going_in_cap` (Y1/price), `stabilized_cap` (Y2/price).
+- **Reporting** (`openval.reporting`): `mark_to_market(prop, as_of)` returns per-lease in-place vs market PSF table; `rent_roll_summary(prop)` returns the at-acquisition snapshot.
+- **Percentage rent**: `Lease.percentage_rent` + `Lease.annual_sales` drive a `percentage_rent` column on the cashflow. Natural breakpoint = annual_base_rent / rate; unnatural = explicit `breakpoint_annual`.
+- **CPI escalators**: `Lease.cpi_escalators` (list of `CpiEscalator(effective_date, floor_pct, ceiling_pct)`) read from `Property.cpi_series` (year → rate). The projector augments base_rent_steps with synthetic CPI-bumped steps in `_apply_cpi_escalators`. Explicit rent_steps on the same date win.
+- **Refinance**: `Property.refinance: Optional[Refinance(effective_date, new_loan, prepayment_penalty_pct)]`. `amortize_loan_with_refinance` runs the original loan to the refi date, computes payoff at `old_balance × (1 + penalty)`, then runs the new loan through the rest of the hold. Net proceeds (`new_principal − payoff`) land on a `refi_proceeds` column added to ncf_levered.
+- **Vacant suites**: `Lease.vacant_at_acquisition(suite_id, area_sf, acquisition_date, mla)` builds a placeholder lease that's already expired at acquisition, triggering immediate MLA rollover. `RentStep.annual_psf` relaxed to `>=0` to accept the placeholder. Pair with `MLA(renewal_probability=0, downtime_months_new=N)` for pure lease-up modeling.
+- **Reimbursement gross-up**: `Property.opex_gross_up_at_occupancy_pct`. When set, the per-year opex passed into recoveries is scaled by `threshold / actual_occupancy` for any year where occupancy < threshold (capped at 1×). `_occupancy_by_year` helper sums weighted MLA-expanded segment areas.
+- **Non-recoverable opex**: `Property.opex_non_recoverable_pct`. The opex series fed into recoveries is multiplied by `(1 − non_recoverable_pct)` before gross-up. Property NOI still shows full opex on the books; only the tenant pass-through share drops.
+- **JV Waterfall** (`openval.waterfall`): `run_waterfall(result, Waterfall(...))` distributes ncf_levered through return-of-capital → preferred return → promote tiers. `Waterfall.promote_tiers` is a list of `PromoteTier(lp_irr_hurdle, gp_promote_pct)` evaluated in order; highest cleared hurdle wins. Returns `WaterfallResult` with monthly schedule, per-party annualized IRR + EM. With no tiers, residual splits pari-passu by equity share. With `preferred_return_pct=0` and no tiers, the structure collapses to pure pari-passu pro-rata.
+- **Sensitivity** (`openval.sensitivity`): 7 axes × 6 metrics. `irr_convention` flows through for the IRR metrics.
+
+## Scripts
+
+- `scripts/build_sample_workbook.py` materializes a 15-tab interactive deal workbook at `docs/sample_workbook.xlsx`. Argus-style category-per-tab layout.
+- `scripts/run_workbook.py docs/sample_workbook.xlsx` loads the workbook, runs `project_property` + optional `run_waterfall`, and writes outputs (cashflows, annual_summary, irr_summary, reversion, yield_matrix, sensitivity, waterfall_schedule, waterfall_summary, mark_to_market, rent_roll_in) back as new sheets. Preserves all input sheets.
+
+## Branches
+
+- `main` — stable release line. Tag `v0.2.0-phase2-stable` marks the Phase 2 completion point.
+- `phase3-features` — all Phase 3 work (133 tests). Merge to main when reviewed.
