@@ -1,6 +1,6 @@
 from openval.cashflow import project_lease, project_rent_roll
 from openval.dcf import IrrConvention, Reversion, UnderwritingResult, project_property
-from openval.debt import Loan, amortize_loan
+from openval.debt import Loan, Refinance, amortize_loan
 from openval.lease import (
     CpiEscalator,
     ExpenseStructure,
@@ -24,6 +24,7 @@ __all__ = [
     "MarketLeasingAssumption",
     "PercentageRent",
     "Property",
+    "Refinance",
     "RenewalOption",
     "RentStep",
     "Reversion",

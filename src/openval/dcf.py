@@ -32,7 +32,7 @@ import numpy_financial as npf
 import pandas as pd
 
 from openval.cashflow import expand_with_mla, project_rent_roll
-from openval.debt import amortize_loan
+from openval.debt import amortize_loan, amortize_loan_with_refinance
 from openval.property import Property
 from openval.recoveries import project_recoveries
 
@@ -164,10 +164,13 @@ def project_property(prop: Property) -> UnderwritingResult:
     cf["ncf_unlevered"] = cf["noi"] + cf["capex"] + cf["ti"] + cf["lc"]
 
     if prop.loan is not None:
-        debt = amortize_loan(prop.loan, prop.acquisition_date, months)
+        debt = amortize_loan_with_refinance(
+            prop.loan, prop.acquisition_date, months, refinance=prop.refinance
+        )
         cf["debt_service"] = -debt["payment"]
         cf["loan_balance"] = debt["balance"]
-        cf["ncf_levered"] = cf["ncf_unlevered"] + cf["debt_service"]
+        cf["refi_proceeds"] = debt["refi_proceeds"]
+        cf["ncf_levered"] = cf["ncf_unlevered"] + cf["debt_service"] + cf["refi_proceeds"]
         # DSCR + debt yield, computed on trailing-12 month NOI / debt service.
         # Below 1.0 DSCR signals coverage breach; debt yield below the loan's
         # implied threshold (often 8-10%) signals refi risk.
@@ -178,6 +181,7 @@ def project_property(prop: Property) -> UnderwritingResult:
     else:
         cf["debt_service"] = 0.0
         cf["loan_balance"] = 0.0
+        cf["refi_proceeds"] = 0.0
         cf["ncf_levered"] = cf["ncf_unlevered"]
         cf["dscr"] = pd.NA
         cf["debt_yield"] = pd.NA

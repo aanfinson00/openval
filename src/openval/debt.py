@@ -30,6 +30,61 @@ class Loan(BaseModel):
         return self
 
 
+class Refinance(BaseModel):
+    """Mid-hold refinance: pay off the existing loan (plus any prepayment
+    penalty) and originate a new one with potentially different terms.
+
+    Net cashflow to equity at the refi month equals
+    ``new_loan.principal − (old_balance × (1 + prepayment_penalty_pct))``.
+    Positive = cash distribution to equity; negative = equity contribution
+    (rare; happens when the new loan is smaller than the payoff amount).
+    """
+
+    effective_date: date
+    new_loan: "Loan"
+    prepayment_penalty_pct: Decimal = Field(default=Decimal("0"), ge=0, le=Decimal("0.10"))
+
+
+def amortize_loan_with_refinance(
+    initial_loan: Loan,
+    initial_funding_date: date,
+    months: pd.DatetimeIndex,
+    refinance: "Refinance | None" = None,
+) -> pd.DataFrame:
+    """Amortize a loan that may be refinanced mid-stream.
+
+    Returns the standard `interest / principal / payment / balance` columns,
+    plus `refi_proceeds` (single non-zero entry on the refi month equal to
+    new_principal − (old_balance × (1 + penalty))).
+    """
+    base = amortize_loan(initial_loan, initial_funding_date, months)
+    base["refi_proceeds"] = 0.0
+    if refinance is None:
+        return base
+
+    refi_ts = pd.Timestamp(year=refinance.effective_date.year,
+                           month=refinance.effective_date.month, day=1)
+    if refi_ts not in months:
+        return base
+
+    # Capture old balance at end of the refi month (post-amort), then payoff
+    # before swapping to the new loan.
+    old_balance_at_refi = float(base.loc[refi_ts, "balance"])
+    payoff = old_balance_at_refi * (1.0 + float(refinance.prepayment_penalty_pct))
+
+    # From the refi month onward, replace the amortization with the new loan.
+    new_months = months[months >= refi_ts]
+    new_amort = amortize_loan(refinance.new_loan, refinance.effective_date, new_months)
+
+    out = base.copy()
+    for col in ("interest", "principal", "payment", "balance"):
+        out.loc[new_months, col] = new_amort[col].values
+    # Refi proceeds: cash to equity at the refi month.
+    proceeds = float(refinance.new_loan.principal) - payoff
+    out.loc[refi_ts, "refi_proceeds"] = proceeds
+    return out
+
+
 def amortize_loan(
     loan: Loan,
     funding_date: date,

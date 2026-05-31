@@ -8,7 +8,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
-from openval.debt import Loan
+from openval.debt import Loan, Refinance
 from openval.lease import Lease
 
 
@@ -52,6 +52,10 @@ class Property(BaseModel):
     cpi_series: dict[int, Decimal] = Field(default_factory=dict)
 
     loan: Optional[Loan] = None
+    # Optional mid-hold refinance: pay off the original loan and originate a
+    # new one with different terms (rate, principal, amort, IO). Common in
+    # value-add deals where a stabilized refi pulls equity out at year 3-5.
+    refinance: Optional[Refinance] = None
 
     @model_validator(mode="after")
     def _structural_checks(self) -> "Property":
