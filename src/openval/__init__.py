@@ -14,6 +14,7 @@ from openval.property import Property
 from openval.recoveries import project_recoveries
 from openval.reporting import mark_to_market, rent_roll_summary
 from openval.sensitivity import sensitivity
+from openval.waterfall import PromoteTier, Waterfall, WaterfallResult, run_waterfall
 
 __all__ = [
     "CpiEscalator",
@@ -23,11 +24,14 @@ __all__ = [
     "Loan",
     "MarketLeasingAssumption",
     "PercentageRent",
+    "PromoteTier",
     "Property",
     "Refinance",
     "RenewalOption",
     "RentStep",
     "Reversion",
+    "Waterfall",
+    "WaterfallResult",
     "UnderwritingResult",
     "amortize_loan",
     "mark_to_market",
@@ -36,6 +40,7 @@ __all__ = [
     "project_recoveries",
     "project_rent_roll",
     "rent_roll_summary",
+    "run_waterfall",
     "sensitivity",
 ]
 
