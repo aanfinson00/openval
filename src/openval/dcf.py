@@ -256,16 +256,21 @@ def _sum_recoveries(
     seen by ``project_recoveries`` is scaled per-year by
     ``threshold / actual_occupancy`` (capped at 1× — never below actual).
     """
+    # Recoverable share of opex (drop the non-recoverable bit before either
+    # gross-up scaling or per-lease recovery math).
+    recoverable_share = 1.0 - float(prop.opex_non_recoverable_pct)
+    base_opex = opex_series * recoverable_share
+
     if prop.opex_gross_up_at_occupancy_pct is not None:
         threshold = float(prop.opex_gross_up_at_occupancy_pct)
         occupancy_by_year = _occupancy_by_year(prop, end)
-        scaled_opex = opex_series.copy()
+        scaled_opex = base_opex.copy()
         for year, occ in occupancy_by_year.items():
             if year in scaled_opex.index and occ > 0 and occ < threshold:
                 scaled_opex.loc[year] = float(scaled_opex.loc[year]) * (threshold / occ)
         opex_for_recoveries = scaled_opex
     else:
-        opex_for_recoveries = opex_series
+        opex_for_recoveries = base_opex
 
     total = pd.Series(0.0, index=months)
     for lease in prop.leases:

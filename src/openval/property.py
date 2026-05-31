@@ -57,6 +57,11 @@ class Property(BaseModel):
     # threshold-equivalent vacancy share. None = disabled. Argus's
     # "Gross Up Reimbursements" toggle; common threshold is 0.95 or 1.00.
     opex_gross_up_at_occupancy_pct: Optional[Decimal] = Field(default=None, ge=0, le=1)
+    # Non-recoverable share of opex: management fees, marketing, etc., that
+    # don't pass through to NNN/MG tenants even though they sit on the
+    # property's books. Default 0 = everything is recoverable (current Argus
+    # default). Set to e.g. 0.08 to mark 8% of opex as landlord-eat.
+    opex_non_recoverable_pct: Decimal = Field(default=Decimal("0"), ge=0, le=1)
 
     loan: Optional[Loan] = None
     # Optional mid-hold refinance: pay off the original loan and originate a
