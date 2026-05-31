@@ -19,6 +19,23 @@ class RentStep(BaseModel):
     annual_psf: Decimal = Field(gt=0)
 
 
+class CpiEscalator(BaseModel):
+    """Annual CPI-indexed escalation, applied to the lease's preceding
+    base-rent step (or the first step if none precedes the escalator's
+    ``effective_date``). Common in long-term industrial / ground-lease deals.
+
+    Mechanics: for each escalator year, take the latest base PSF, multiply
+    by min(ceiling, max(floor, cpi_rate_for_year)).
+
+    ``floor_pct`` and ``ceiling_pct`` are fractions, e.g. 0.02 / 0.05 = 2%/5%.
+    Set ``ceiling_pct=None`` for an uncapped escalator.
+    """
+
+    effective_date: date
+    floor_pct: Decimal = Field(default=Decimal("0"), ge=0)
+    ceiling_pct: Optional[Decimal] = Field(default=None, ge=0)
+
+
 class PercentageRent(BaseModel):
     natural_breakpoint: bool = True
     breakpoint_annual: Optional[Decimal] = None
@@ -78,6 +95,10 @@ class Lease(BaseModel):
     end_date: date
 
     base_rent_steps: list[RentStep]
+    # CPI-indexed escalators applied annually. Each escalator looks up the
+    # CPI rate for its effective_date.year in the property's cpi_series,
+    # clamps to [floor_pct, ceiling_pct], and bumps the prevailing PSF.
+    cpi_escalators: list[CpiEscalator] = Field(default_factory=list)
     free_rent_months: int = Field(default=0, ge=0)
 
     ti_psf: Decimal = Field(default=Decimal("0"), ge=0)

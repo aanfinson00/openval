@@ -108,7 +108,7 @@ def project_property(prop: Property) -> UnderwritingResult:
     projection_years = prop.hold_years + (1 if forward_mode else 0)
     end = _add_years(start, projection_years)
 
-    rent_roll = project_rent_roll(prop.leases, start, end)
+    rent_roll = project_rent_roll(prop.leases, start, end, cpi_series=prop.cpi_series)
     expected_total = projection_years * 12
     if len(rent_roll) > expected_total:
         rent_roll = rent_roll.iloc[:expected_total]

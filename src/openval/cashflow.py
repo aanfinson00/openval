@@ -20,10 +20,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from typing import Optional
 
 import pandas as pd
 
 from openval.lease import (
+    CpiEscalator,
     ExpenseStructure,
     Lease,
     MarketLeasingAssumption,
@@ -45,7 +47,12 @@ class WeightedLease:
     lease: Lease
 
 
-def project_lease(lease: Lease, start: date, end: date) -> pd.DataFrame:
+def project_lease(
+    lease: Lease,
+    start: date,
+    end: date,
+    cpi_series: Optional[dict[int, Decimal]] = None,
+) -> pd.DataFrame:
     """Project a single lease's monthly cashflows over [start, end].
 
     The projection window is independent of the lease term — months outside
@@ -60,12 +67,13 @@ def project_lease(lease: Lease, start: date, end: date) -> pd.DataFrame:
     lc = pd.Series(0.0, index=months)
 
     area_sf = float(lease.area_sf)
+    cpi_adjusted_steps = _apply_cpi_escalators(lease, cpi_series or {})
 
     for ts in months:
         m_date = ts.date()
         if m_date < lease.start_date or m_date >= lease.end_date:
             continue
-        annual_psf = float(_active_psf(lease.base_rent_steps, m_date))
+        annual_psf = float(_active_psf(cpi_adjusted_steps, m_date))
         base_rent.loc[ts] = annual_psf * area_sf / 12.0
 
     percentage_rent_series = pd.Series(0.0, index=months)
@@ -104,6 +112,40 @@ def project_lease(lease: Lease, start: date, end: date) -> pd.DataFrame:
     )
     df["net_rent"] = df["base_rent"] + df["free_rent_abatement"]
     return df
+
+
+def _apply_cpi_escalators(
+    lease: Lease, cpi_series: dict[int, Decimal]
+) -> list[RentStep]:
+    """Return a rent-step list reflecting any CPI escalators applied on top.
+
+    Each escalator bumps the prevailing PSF on its ``effective_date`` by
+    ``clamp(cpi_rate_for_year, floor_pct, ceiling_pct)``. The synthetic
+    step is appended to the lease's existing steps and re-sorted; if the
+    effective_date collides with an existing step, the existing step wins
+    (the user-specified bump takes precedence over the index).
+    """
+    if not lease.cpi_escalators:
+        return list(lease.base_rent_steps)
+
+    augmented: list[RentStep] = list(lease.base_rent_steps)
+    existing_dates = {s.start_date for s in augmented}
+    for esc in sorted(lease.cpi_escalators, key=lambda e: e.effective_date):
+        if esc.effective_date in existing_dates:
+            continue
+        cpi_rate = cpi_series.get(esc.effective_date.year)
+        if cpi_rate is None:
+            continue
+        bump = float(cpi_rate)
+        bump = max(bump, float(esc.floor_pct))
+        if esc.ceiling_pct is not None:
+            bump = min(bump, float(esc.ceiling_pct))
+        prev_psf = float(_active_psf(augmented, esc.effective_date))
+        new_psf = Decimal(str(round(prev_psf * (1.0 + bump), 4)))
+        augmented.append(RentStep(start_date=esc.effective_date, annual_psf=new_psf))
+        existing_dates.add(esc.effective_date)
+    augmented.sort(key=lambda s: s.start_date)
+    return augmented
 
 
 def _project_percentage_rent(lease: "Lease", months: pd.DatetimeIndex) -> pd.Series:
@@ -153,7 +195,12 @@ def _project_percentage_rent(lease: "Lease", months: pd.DatetimeIndex) -> pd.Ser
     return out
 
 
-def project_rent_roll(leases: list[Lease], start: date, end: date) -> pd.DataFrame:
+def project_rent_roll(
+    leases: list[Lease],
+    start: date,
+    end: date,
+    cpi_series: Optional[dict[int, Decimal]] = None,
+) -> pd.DataFrame:
     """Sum per-lease projections into a single property-level DataFrame.
 
     Leases carrying a ``MarketLeasingAssumption`` are auto-expanded into
@@ -172,7 +219,8 @@ def project_rent_roll(leases: list[Lease], start: date, end: date) -> pd.DataFra
         weighted_segments.extend(expand_with_mla(l, end))
 
     projections = [
-        project_lease(ws.lease, start, end) * ws.weight for ws in weighted_segments
+        project_lease(ws.lease, start, end, cpi_series=cpi_series) * ws.weight
+        for ws in weighted_segments
     ]
     return sum(projections[1:], projections[0].copy())
 

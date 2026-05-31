@@ -2,6 +2,7 @@ from openval.cashflow import project_lease, project_rent_roll
 from openval.dcf import IrrConvention, Reversion, UnderwritingResult, project_property
 from openval.debt import Loan, amortize_loan
 from openval.lease import (
+    CpiEscalator,
     ExpenseStructure,
     Lease,
     MarketLeasingAssumption,
@@ -15,6 +16,7 @@ from openval.reporting import mark_to_market, rent_roll_summary
 from openval.sensitivity import sensitivity
 
 __all__ = [
+    "CpiEscalator",
     "ExpenseStructure",
     "IrrConvention",
     "Lease",

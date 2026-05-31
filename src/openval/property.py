@@ -46,6 +46,10 @@ class Property(BaseModel):
     # collection loss. Industry rule of thumb is 0.5–1%. Argus's
     # "Credit Loss" / "Collection Loss" line.
     credit_loss_pct: Decimal = Field(default=Decimal("0"), ge=0, le=1)
+    # CPI rate series for CPI-indexed lease escalators. Year → CPI rate
+    # (fraction). Lease.cpi_escalators read from this series; if a year
+    # is missing, the escalator skips that year.
+    cpi_series: dict[int, Decimal] = Field(default_factory=dict)
 
     loan: Optional[Loan] = None
 
