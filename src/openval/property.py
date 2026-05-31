@@ -50,6 +50,13 @@ class Property(BaseModel):
     # (fraction). Lease.cpi_escalators read from this series; if a year
     # is missing, the escalator skips that year.
     cpi_series: dict[int, Decimal] = Field(default_factory=dict)
+    # Reimbursement gross-up: when occupancy falls below this threshold for a
+    # year, opex passed into the recovery calc is scaled up to threshold-
+    # occupancy equivalent. Each tenant ends up paying their pro-rata share of
+    # the *grossed-up* opex, leaving the landlord on the hook only for the
+    # threshold-equivalent vacancy share. None = disabled. Argus's
+    # "Gross Up Reimbursements" toggle; common threshold is 0.95 or 1.00.
+    opex_gross_up_at_occupancy_pct: Optional[Decimal] = Field(default=None, ge=0, le=1)
 
     loan: Optional[Loan] = None
     # Optional mid-hold refinance: pay off the original loan and originate a

@@ -250,15 +250,60 @@ def _sum_recoveries(
     opex_series: pd.Series,
     months: pd.DatetimeIndex,
 ) -> pd.Series:
-    """Sum probability-weighted recoveries across all leases + their rollovers."""
+    """Sum probability-weighted recoveries across all leases + their rollovers.
+
+    If ``Property.opex_gross_up_at_occupancy_pct`` is set, the opex schedule
+    seen by ``project_recoveries`` is scaled per-year by
+    ``threshold / actual_occupancy`` (capped at 1× — never below actual).
+    """
+    if prop.opex_gross_up_at_occupancy_pct is not None:
+        threshold = float(prop.opex_gross_up_at_occupancy_pct)
+        occupancy_by_year = _occupancy_by_year(prop, end)
+        scaled_opex = opex_series.copy()
+        for year, occ in occupancy_by_year.items():
+            if year in scaled_opex.index and occ > 0 and occ < threshold:
+                scaled_opex.loc[year] = float(scaled_opex.loc[year]) * (threshold / occ)
+        opex_for_recoveries = scaled_opex
+    else:
+        opex_for_recoveries = opex_series
+
     total = pd.Series(0.0, index=months)
     for lease in prop.leases:
         for ws in expand_with_mla(lease, end):
             rec = project_recoveries(
-                ws.lease, start, end, prop.rentable_sf, opex_series
+                ws.lease, start, end, prop.rentable_sf, opex_for_recoveries
             )
             total += rec["recovery"] * ws.weight
     return total
+
+
+def _occupancy_by_year(prop: Property, end: date) -> dict[int, float]:
+    """Weighted average occupancy per calendar year, summed across lease segments.
+
+    For each weighted segment, count the calendar months overlapping each
+    year of [acquisition, end), weighted by segment.weight × area_sf, then
+    divide by (rentable_sf × 12) to get a fractional occupancy for the year.
+    """
+    out: dict[int, float] = {}
+    start = prop.acquisition_date
+    for lease in prop.leases:
+        for ws in expand_with_mla(lease, end):
+            seg_start = max(ws.lease.start_date, start)
+            seg_end = min(ws.lease.end_date, end)
+            if seg_end <= seg_start:
+                continue
+            cursor_year = seg_start.year
+            cursor_month = seg_start.month
+            seg_end_idx = seg_end.year * 12 + seg_end.month
+            while cursor_year * 12 + cursor_month < seg_end_idx:
+                out.setdefault(cursor_year, 0.0)
+                out[cursor_year] += ws.weight * float(ws.lease.area_sf)
+                cursor_month += 1
+                if cursor_month > 12:
+                    cursor_month = 1
+                    cursor_year += 1
+    rentable = float(prop.rentable_sf)
+    return {year: months_area / (rentable * 12) for year, months_area in out.items()}
 
 
 def _compute_reversion(
