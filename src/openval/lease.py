@@ -16,7 +16,9 @@ class ExpenseStructure(str, Enum):
 
 class RentStep(BaseModel):
     start_date: date
-    annual_psf: Decimal = Field(gt=0)
+    # >=0 to support vacant-suite modeling (a Lease that's already expired at
+    # acquisition with $0 placeholder rent; the MLA handles the lease-up).
+    annual_psf: Decimal = Field(ge=0)
 
 
 class CpiEscalator(BaseModel):
@@ -146,3 +148,40 @@ class Lease(BaseModel):
         years = self.end_date.year - self.start_date.year
         months = self.end_date.month - self.start_date.month
         return years * 12 + months
+
+    @classmethod
+    def vacant_at_acquisition(
+        cls,
+        suite_id: str,
+        area_sf: int,
+        acquisition_date: date,
+        market_leasing_assumption: "MarketLeasingAssumption",
+        expense_structure: ExpenseStructure = ExpenseStructure.NNN,
+    ) -> "Lease":
+        """Build a placeholder Lease for a suite that's dark at acquisition.
+
+        The lease is constructed so its term has already ended at the
+        acquisition month, which triggers immediate MLA rollover from day 1.
+        The renewal branch starts at the acquisition month; the new-tenant
+        branch starts after ``downtime_months_new``. Combined with a
+        ``renewal_probability=0`` MLA this models "vacant suite leasing up
+        from market" — the standard Argus pattern.
+        """
+        # End date = the acquisition month; start one month earlier so the
+        # validator accepts it. The "real" lease covers the preceding month,
+        # which is outside the projection window and has $0 rent.
+        end = acquisition_date
+        if end.month == 1:
+            start = date(end.year - 1, 12, end.day)
+        else:
+            start = date(end.year, end.month - 1, end.day)
+        return cls(
+            suite_id=suite_id,
+            tenant_name="VACANT",
+            area_sf=area_sf,
+            start_date=start,
+            end_date=end,
+            base_rent_steps=[RentStep(start_date=start, annual_psf=Decimal("0"))],
+            expense_structure=expense_structure,
+            market_leasing_assumption=market_leasing_assumption,
+        )
