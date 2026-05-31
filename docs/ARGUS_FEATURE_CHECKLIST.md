@@ -24,10 +24,10 @@ Triangulation: features mentioned by 3+ sources are **CORE** (table-stakes for a
 **Phase 2 priorities** (closes the gap to "serious Argus alternative"):
 1. ~~**Market Leasing Assumptions on rollover**~~ — ✅ v1 shipped. Per-lease `MarketLeasingAssumption` triggers probability-weighted renewal/new branching with downtime, market-rent growth, renewal discount, new-vs-renewal free rent / TI / LC. Chains recursively through the hold. v2: promote to named property-level profiles (true Argus MLP), reimbursable recoveries during downtime toggle.
 2. ~~**Forward NOI for reversion**~~ — ✅ shipped; opt in via `Property(reversion_basis="forward")`. DeLisle Case 5 forward-NOI mode now matches published reversion within $10 and levered IRR within 0.5 pp of derived pre-tax target.
-3. **Vacancy & credit loss** — general vacancy, absorption & turnover vacancy, gross-up checkbox.
+3. ~~**Vacancy & credit loss**~~ — ✅ v1 shipped. `Property.general_vacancy_pct` and `Property.credit_loss_pct` as deductions to EGI. Compounds additively with MLA downtime. Gross-up and absorption-vs-general toggle deferred to v2.
 4. **CSV/Excel rent roll import** — adoption blocker; nobody types in 200 leases by hand.
-5. **`.aeex` / `.aeix` import** — Argus's XML export format is public; parsing is tolerated (Forbury/Lightbox/Assess+RE all do it).
-6. **Sensitivity matrix** — IRR matrix on yield / growth / cap rate. Built-in feature competitors all replicate.
+5. **`.aeex` / `.aeix` / `.avux` import** — Argus's XML export format is public; parsing is tolerated (Forbury/Lightbox/Assess+RE all do it).
+6. ~~**Sensitivity matrix**~~ — ✅ shipped. `openval.sensitivity(prop, row_axis, row_values, col_axis, col_values, metric, irr_convention)`. Supported axes: exit_cap_rate, sale_costs_pct, general_vacancy_pct, credit_loss_pct, acquisition_price, loan_principal, loan_rate. Metrics: unlevered/levered IRR + EM, terminal NOI, gross sale.
 
 **Bonus shipped:**
 - `UnderwritingResult.irr(convention=, levered=)` — monthly_annualized | annual_end_of_year | annual_mid_year. Lets users match their Excel or Argus yield outputs.

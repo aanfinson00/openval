@@ -11,6 +11,7 @@ from openval.lease import (
 )
 from openval.property import Property
 from openval.recoveries import project_recoveries
+from openval.sensitivity import sensitivity
 
 __all__ = [
     "ExpenseStructure",
@@ -29,6 +30,7 @@ __all__ = [
     "project_property",
     "project_recoveries",
     "project_rent_roll",
+    "sensitivity",
 ]
 
 __version__ = "0.1.0"
