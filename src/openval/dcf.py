@@ -156,10 +156,19 @@ def project_property(prop: Property) -> UnderwritingResult:
         cf["debt_service"] = -debt["payment"]
         cf["loan_balance"] = debt["balance"]
         cf["ncf_levered"] = cf["ncf_unlevered"] + cf["debt_service"]
+        # DSCR + debt yield, computed on trailing-12 month NOI / debt service.
+        # Below 1.0 DSCR signals coverage breach; debt yield below the loan's
+        # implied threshold (often 8-10%) signals refi risk.
+        ttm_noi = cf["noi"].rolling(window=12, min_periods=1).sum()
+        ttm_debt = (-cf["debt_service"]).rolling(window=12, min_periods=1).sum()
+        cf["dscr"] = ttm_noi / ttm_debt.replace(0, pd.NA)
+        cf["debt_yield"] = ttm_noi / cf["loan_balance"].replace(0, pd.NA)
     else:
         cf["debt_service"] = 0.0
         cf["loan_balance"] = 0.0
         cf["ncf_levered"] = cf["ncf_unlevered"]
+        cf["dscr"] = pd.NA
+        cf["debt_yield"] = pd.NA
 
     reversion = _compute_reversion(cf, prop, forward_noi=forward_noi)
 

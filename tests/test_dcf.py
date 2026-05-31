@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
+import pandas as pd
 import pytest
 
 from openval import (
@@ -229,6 +230,35 @@ def test_forward_basis_irr_exceeds_trailing_under_escalation():
     trailing_result = project_property(_escalating_nnn("trailing"))
     forward_result = project_property(_escalating_nnn("forward"))
     assert forward_result.unlevered_irr > trailing_result.unlevered_irr
+
+
+def test_dscr_and_debt_yield_present_with_loan():
+    """When a loan exists, dscr and debt_yield columns are populated."""
+    prop = _full_building_nnn()
+    levered = Property(
+        **{**prop.model_dump(), "loan": Loan(
+            principal=Decimal("9000000"),
+            rate_annual=Decimal("0.055"),
+            amortization_years=30,
+            term_years=10,
+        )}
+    )
+    result = project_property(levered)
+    # DSCR should be > 1 for this deal (10% on cost > 5.5% debt yield)
+    eoy_dscr = result.cashflows.loc["2026-12-01", "dscr"]
+    assert eoy_dscr > 1.5
+    # Debt yield = NOI / loan_balance; should be > 8% here
+    eoy_dy = result.cashflows.loc["2026-12-01", "debt_yield"]
+    assert eoy_dy > 0.08
+
+
+def test_dscr_and_debt_yield_absent_without_loan():
+    result = project_property(_full_building_nnn())
+    # No loan → dscr and debt_yield columns exist but are NA
+    assert "dscr" in result.cashflows.columns
+    assert "debt_yield" in result.cashflows.columns
+    assert pd.isna(result.cashflows["dscr"]).all()
+    assert pd.isna(result.cashflows["debt_yield"]).all()
 
 
 def test_acquisition_closing_costs_increase_equity_basis():
