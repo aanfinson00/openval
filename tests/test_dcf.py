@@ -232,6 +232,16 @@ def test_forward_basis_irr_exceeds_trailing_under_escalation():
     assert forward_result.unlevered_irr > trailing_result.unlevered_irr
 
 
+def test_stabilized_noi_and_going_in_cap():
+    """Going-in cap = Y1 NOI / price. Stabilized cap uses Y2."""
+    result = project_property(_full_building_nnn())
+    # Y1 NOI = $1.5M, price = $15M, going-in = 10%
+    assert result.going_in_cap == pytest.approx(0.10, abs=1e-3)
+    # Y2 NOI is also $1.5M (flat lease), stabilized cap = 10%
+    assert result.stabilized_cap == pytest.approx(0.10, abs=1e-3)
+    assert result.stabilized_noi == pytest.approx(1_500_000, rel=1e-4)
+
+
 def test_dscr_and_debt_yield_present_with_loan():
     """When a loan exists, dscr and debt_yield columns are populated."""
     prop = _full_building_nnn()

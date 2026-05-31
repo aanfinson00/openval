@@ -68,6 +68,13 @@ class UnderwritingResult:
     # Append-only additions (post v0.1.0) — stored to support .irr(convention).
     initial_equity_unlevered: float = 0.0
     initial_equity_levered: Optional[float] = None
+    # Stabilized NOI = NOI for the first hold year where ramp items (free rent,
+    # TI/LC at commencement, MLA downtime) don't depress NOI. Approximated as
+    # year 2 of the hold for most stable deals; falls back to the highest NOI
+    # year if year 2 isn't clean.
+    stabilized_noi: float = 0.0
+    going_in_cap: float = 0.0  # year 1 NOI / acquisition price
+    stabilized_cap: float = 0.0  # stabilized NOI / acquisition price
 
     def irr(
         self,
@@ -178,6 +185,18 @@ def project_property(prop: Property) -> UnderwritingResult:
 
     closing_costs = float(prop.acquisition_price) * float(prop.acquisition_costs_pct)
     initial_equity_unlevered = float(prop.acquisition_price) + closing_costs
+
+    # Stabilized NOI: best year-2 NOI (year 1 often has free rent / TI ramp).
+    # If hold is < 2 years, fall back to year-1 NOI.
+    by_year_noi = cf["noi"].groupby(cf.index.year).sum()
+    year_1_noi = float(by_year_noi.iloc[0]) if len(by_year_noi) > 0 else 0.0
+    stabilized_noi_val = (
+        float(by_year_noi.iloc[1])
+        if len(by_year_noi) > 1
+        else year_1_noi
+    )
+    going_in_cap_val = year_1_noi / float(prop.acquisition_price)
+    stabilized_cap_val = stabilized_noi_val / float(prop.acquisition_price)
     initial_equity_levered = (
         initial_equity_unlevered - float(prop.loan.principal)
         if prop.loan is not None
@@ -209,6 +228,9 @@ def project_property(prop: Property) -> UnderwritingResult:
         levered_equity_multiple=levered_em,
         initial_equity_unlevered=initial_equity_unlevered,
         initial_equity_levered=initial_equity_levered if prop.loan is not None else None,
+        stabilized_noi=stabilized_noi_val,
+        going_in_cap=going_in_cap_val,
+        stabilized_cap=stabilized_cap_val,
     )
 
 
