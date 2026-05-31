@@ -61,7 +61,10 @@ def _notes_sheet() -> pd.DataFrame:
         ("inflation", "Annual growth rates by category — drives MLA market_rent_growth, opex schedule extrapolation"),
         ("purchase", "Acquisition price, sale costs %, exit cap rate"),
         ("debt", "Loan principal, rate, amortization, term, interest-only period"),
-        ("vacancy_credit", "General vacancy % + credit loss %, both as fractions of gross potential rent"),
+        ("vacancy_credit", "General vacancy %, credit loss %, opex non-recoverable %, opex gross-up at occupancy %"),
+        ("refinance", "Optional mid-hold refinance — effective date, new loan terms, prepayment penalty %. Leave fields blank to skip."),
+        ("waterfall", "JV equity waterfall: LP/GP equity shares, preferred return, up to 3 promote tiers (LP IRR hurdle + GP promote %)"),
+        ("cpi", "Annual CPI rates used for CPI-indexed lease escalators (referenced from rent_steps if any escalator's rent is left blank)"),
         ("opex", "Year-by-year operating expense schedule (must cover hold; one extra year if reversion_basis=forward)"),
         ("capex", "Year-by-year capital expense schedule (optional)"),
         ("leases", "Rent roll — one row per lease"),
@@ -139,6 +142,7 @@ def _purchase_sheet() -> pd.DataFrame:
     return pd.DataFrame(
         [
             ("acquisition_price", 40_000_000),
+            ("acquisition_costs_pct", 0.02),  # closing costs % of purchase price
             ("sale_costs_pct", 0.02),
             ("exit_cap_rate", 0.07),
         ],
@@ -159,13 +163,61 @@ def _debt_sheet() -> pd.DataFrame:
     )
 
 
+def _refinance_sheet() -> pd.DataFrame:
+    """Optional mid-hold refinance. Leave all rows empty to skip."""
+    return pd.DataFrame(
+        [
+            ("refi_effective_date", "2029-01-01"),  # year 3
+            ("refi_new_principal", 28_000_000),  # cash-out (was 24M)
+            ("refi_new_rate_annual", 0.045),  # rate compression
+            ("refi_new_amortization_years", 30),
+            ("refi_new_term_years", 10),
+            ("refi_new_interest_only_years", 0),
+            ("refi_prepayment_penalty_pct", 0.01),
+        ],
+        columns=["field", "value"],
+    )
+
+
 def _vacancy_credit_sheet() -> pd.DataFrame:
     return pd.DataFrame(
         [
             ("general_vacancy_pct", 0.05),
             ("credit_loss_pct", 0.005),
+            ("opex_non_recoverable_pct", 0.08),  # 8% mgmt/marketing not pass-through
+            ("opex_gross_up_at_occupancy_pct", 0.95),  # gross up to 95% occupancy
         ],
         columns=["field", "value"],
+    )
+
+
+def _waterfall_sheet() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            ("lp_equity_share", 0.90),
+            ("gp_equity_share", 0.10),
+            ("preferred_return_pct", 0.08),
+            # Promote tier 1: 20% to GP above 8% LP IRR
+            ("tier1_lp_irr_hurdle", 0.08),
+            ("tier1_gp_promote_pct", 0.20),
+            # Promote tier 2: 30% to GP above 12% LP IRR
+            ("tier2_lp_irr_hurdle", 0.12),
+            ("tier2_gp_promote_pct", 0.30),
+            # Promote tier 3: 40% to GP above 18% LP IRR (super-promote)
+            ("tier3_lp_irr_hurdle", 0.18),
+            ("tier3_gp_promote_pct", 0.40),
+        ],
+        columns=["field", "value"],
+    )
+
+
+def _cpi_sheet() -> pd.DataFrame:
+    """Annual CPI rates for CPI-indexed lease escalators (used if any lease references CPI)."""
+    return pd.DataFrame(
+        [
+            {"year": y, "cpi_rate": round(0.025 + 0.005 * (y - 2026), 4)}
+            for y in range(2026, 2032)
+        ]
     )
 
 
@@ -296,7 +348,10 @@ SHEET_BUILDERS: list[tuple[str, callable]] = [
     ("inflation", _inflation_sheet),
     ("purchase", _purchase_sheet),
     ("debt", _debt_sheet),
+    ("refinance", _refinance_sheet),
     ("vacancy_credit", _vacancy_credit_sheet),
+    ("waterfall", _waterfall_sheet),
+    ("cpi", _cpi_sheet),
     ("opex", _opex_sheet),
     ("capex", _capex_sheet),
     ("leases", _leases_sheet),
