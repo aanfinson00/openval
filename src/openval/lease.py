@@ -38,6 +38,37 @@ class RenewalOption(BaseModel):
     market_discount_pct: Decimal = Field(default=Decimal("0"), ge=0, le=1)
 
 
+class MarketLeasingAssumption(BaseModel):
+    """Rules applied when a lease expires inside the projection window.
+
+    Generates two probability-weighted speculative segments at every rollover:
+    a renewal variant (weight = renewal_probability) and a new-tenant variant
+    (weight = 1 - renewal_probability). Each segment inherits this same MLA,
+    so rollover chains extend through the projection automatically.
+    """
+
+    market_rent_psf: Decimal = Field(gt=0)
+    market_rent_growth_pct: Decimal = Field(default=Decimal("0"), ge=0)
+
+    new_term_months: int = Field(gt=0)
+    rent_escalation_pct: Decimal = Field(default=Decimal("0"), ge=0)
+
+    free_rent_months_new: int = Field(default=0, ge=0)
+    free_rent_months_renewal: int = Field(default=0, ge=0)
+
+    ti_psf_new: Decimal = Field(default=Decimal("0"), ge=0)
+    ti_psf_renewal: Decimal = Field(default=Decimal("0"), ge=0)
+
+    lc_pct_new: Decimal = Field(default=Decimal("0"), ge=0, le=1)
+    lc_pct_renewal: Decimal = Field(default=Decimal("0"), ge=0, le=1)
+
+    renewal_probability: Decimal = Field(default=Decimal("0"), ge=0, le=1)
+    downtime_months_new: int = Field(default=0, ge=0)
+    renewal_market_discount_pct: Decimal = Field(default=Decimal("0"), ge=0, le=1)
+
+    expense_structure: ExpenseStructure = ExpenseStructure.NNN
+
+
 class Lease(BaseModel):
     suite_id: str
     tenant_name: str
@@ -60,6 +91,11 @@ class Lease(BaseModel):
     percentage_rent: Optional[PercentageRent] = None
 
     renewal_options: list[RenewalOption] = Field(default_factory=list)
+
+    # When set, the projector synthesizes probability-weighted rollover segments
+    # after end_date for the remainder of the projection window. Each speculative
+    # segment inherits this same MLA so rollover chains automatically.
+    market_leasing_assumption: Optional["MarketLeasingAssumption"] = None
 
     @field_validator("base_rent_steps")
     @classmethod

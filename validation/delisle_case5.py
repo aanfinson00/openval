@@ -20,9 +20,10 @@ Notes:
        OpenVal doesn't model vacancy directly, so we bundle vacancy into OpEx.
        Mathematically equivalent: NOI = GI − (vac+opex+tax) = 0.9·GI − opex − tax.
     2. Lease is FSG (gross): no recoveries. Avoids the recovery-math comparison.
-    3. DeLisle uses FORWARD NOI (year N+1) for reversion. OpenVal uses
-       trailing-12 NOI. We compute both for the diff. Forward-NOI mode is
-       a Phase 2 OpenVal feature.
+    3. DeLisle uses FORWARD NOI (year N+1) for reversion. OpenVal now supports
+       both bases via ``Property.reversion_basis``. We build the deal once with
+       forward-NOI inputs (rent steps + opex extended into Y6) and compare both
+       modes to DeLisle's published numbers.
     4. DeLisle publishes AFTER-tax IRR (14.76%). OpenVal is pre-tax. The
        agent-derived pre-tax targets (from DeLisle's BTCF + reversion) are:
        unlevered ≈ 11.4%, levered ≈ 19.6%.
@@ -30,8 +31,6 @@ Notes:
 
 from datetime import date
 from decimal import Decimal
-
-import numpy_financial as npf
 
 from openval import ExpenseStructure, Lease, Loan, Property, RentStep, project_property
 
@@ -51,7 +50,12 @@ DELISLE_PUBLISHED = {
 }
 
 
-def build_deal() -> Property:
+def build_deal(reversion_basis: str = "trailing") -> Property:
+    """Build the DeLisle Case 5 deal.
+
+    The 6-year span of rent steps + opex covers the year after the hold so the
+    same fixture can be projected under either reversion basis.
+    """
     base_psf = Decimal("468557") / Decimal("17000")  # = 27.5622
 
     rent_steps = [
@@ -59,7 +63,7 @@ def build_deal() -> Property:
             start_date=date(2009 + i, 1, 1),
             annual_psf=(base_psf * (Decimal("1.04") ** i)).quantize(Decimal("0.0001")),
         )
-        for i in range(5)
+        for i in range(6)
     ]
 
     lease = Lease(
@@ -67,14 +71,15 @@ def build_deal() -> Property:
         tenant_name="Master Lease",
         area_sf=17_000,
         start_date=date(2009, 1, 1),
-        end_date=date(2015, 1, 1),
+        end_date=date(2015, 1, 1),  # covers months Jan-2009 through Dec-2014
         base_rent_steps=rent_steps,
         expense_structure=ExpenseStructure.FSG,
     )
 
-    # OpEx schedule: vacancy + opex + tax (each on its own growth rate)
+    # OpEx schedule: vacancy + opex + tax (each on its own growth rate).
+    # Extended to Y6 (2014) so forward-NOI reversion can read it.
     opex_annual: dict[int, Decimal] = {}
-    for i in range(5):
+    for i in range(6):
         gi = Decimal("468557") * (Decimal("1.04") ** i)
         vacancy = (gi * Decimal("0.10")).quantize(Decimal("0.01"))
         opex = (Decimal("46856") * (Decimal("1.04") ** i)).quantize(Decimal("0.01"))
@@ -99,51 +104,18 @@ def build_deal() -> Property:
         hold_years=5,
         exit_cap_rate=Decimal("0.10"),
         sale_costs_pct=Decimal("0.02"),
+        reversion_basis=reversion_basis,
         loan=loan,
     )
 
 
-def reconcile_irr_with_forward_noi(prop: Property, result, noi_y6_forward: float):
-    """Recompute IRR using forward (Y6) NOI for reversion, to match DeLisle's convention."""
-    gross_sale_forward = noi_y6_forward / float(prop.exit_cap_rate)
-    sale_costs_forward = gross_sale_forward * float(prop.sale_costs_pct)
-    net_sale_forward = gross_sale_forward - sale_costs_forward
-    loan_payoff = result.reversion.loan_payoff
-    net_to_equity_forward = net_sale_forward - loan_payoff
-
-    cf = result.cashflows
-    # Strip out our trailing-12 reversion and add forward-NOI reversion
-    ncf_unlevered_no_rev = cf["ncf_unlevered"].copy()
-    ncf_levered_no_rev = cf["ncf_levered"].copy()
-    terminal_idx = cf.index[-1]
-    ncf_unlevered_no_rev.loc[terminal_idx] -= result.reversion.net_sale
-    ncf_levered_no_rev.loc[terminal_idx] -= result.reversion.net_sale_to_equity
-
-    # Re-add with forward NOI reversion
-    ncf_unlevered_no_rev.loc[terminal_idx] += net_sale_forward
-    ncf_levered_no_rev.loc[terminal_idx] += net_to_equity_forward
-
-    initial_equity_unlevered = float(prop.acquisition_price)
-    initial_equity_levered = initial_equity_unlevered - float(prop.loan.principal)
-
-    unl_irr = npf.irr([-initial_equity_unlevered] + ncf_unlevered_no_rev.tolist())
-    lev_irr = npf.irr([-initial_equity_levered] + ncf_levered_no_rev.tolist())
-    unl_irr_annual = (1 + unl_irr) ** 12 - 1
-    lev_irr_annual = (1 + lev_irr) ** 12 - 1
-
-    return {
-        "gross_sale_forward": gross_sale_forward,
-        "net_sale_forward": net_sale_forward,
-        "net_to_equity_forward": net_to_equity_forward,
-        "unlevered_irr": unl_irr_annual,
-        "levered_irr": lev_irr_annual,
-    }
-
-
 def main() -> None:
-    prop = build_deal()
-    result = project_property(prop)
-    cf = result.cashflows
+    prop_trailing = build_deal("trailing")
+    result_trailing = project_property(prop_trailing)
+    cf = result_trailing.cashflows
+
+    prop_forward = build_deal("forward")
+    result_forward = project_property(prop_forward)
 
     print("=" * 78)
     print("DELISLE CASE 5 VALIDATION — OPENVAL vs PUBLISHED")
@@ -182,33 +154,37 @@ def main() -> None:
     print("REVERSION COMPARISON")
     print("=" * 78)
     print(f"  OpenVal (trailing-12 NOI / 10%):")
-    print(f"    terminal NOI = {result.reversion.terminal_noi:>14,.0f}  (vs DeLisle Y5 NOI = {DELISLE_PUBLISHED['noi'][4]:,})")
-    print(f"    gross sale   = {result.reversion.gross_sale_price:>14,.0f}")
-    print(f"    net sale     = {result.reversion.net_sale:>14,.0f}")
+    print(f"    terminal NOI = {result_trailing.reversion.terminal_noi:>14,.0f}  (vs DeLisle Y5 NOI = {DELISLE_PUBLISHED['noi'][4]:,})")
+    print(f"    gross sale   = {result_trailing.reversion.gross_sale_price:>14,.0f}")
+    print(f"    net sale     = {result_trailing.reversion.net_sale:>14,.0f}")
     print()
-    print(f"  DeLisle (forward NOI Y6 / 10%):")
-    print(f"    NOI Y6       = {DELISLE_PUBLISHED['noi_y6_forward']:>14,.0f}")
-    print(f"    gross sale   = {DELISLE_PUBLISHED['gross_sale_y5']:>14,.0f}")
-    print(f"    net sale     = {DELISLE_PUBLISHED['net_sale_y5']:>14,.0f}")
-    print()
-
-    forward = reconcile_irr_with_forward_noi(prop, result, DELISLE_PUBLISHED["noi_y6_forward"])
-    print(f"  OpenVal recomputed with FORWARD NOI override:")
-    print(f"    gross sale   = {forward['gross_sale_forward']:>14,.0f}")
-    print(f"    net sale     = {forward['net_sale_forward']:>14,.0f}")
+    print(f"  OpenVal (forward NOI Y6 / 10%) — reversion_basis='forward':")
+    print(f"    terminal NOI = {result_forward.reversion.terminal_noi:>14,.0f}  (vs DeLisle Y6 NOI = {DELISLE_PUBLISHED['noi_y6_forward']:,})")
+    print(f"    gross sale   = {result_forward.reversion.gross_sale_price:>14,.0f}  (vs DeLisle = {DELISLE_PUBLISHED['gross_sale_y5']:,})")
+    print(f"    net sale     = {result_forward.reversion.net_sale:>14,.0f}  (vs DeLisle = {DELISLE_PUBLISHED['net_sale_y5']:,})")
     print()
 
     print("=" * 78)
-    print("IRR COMPARISON")
+    print("IRR COMPARISON (forward-NOI mode, multiple conventions)")
     print("=" * 78)
-    print(f"  OpenVal (trailing-12):    unlevered={result.unlevered_irr:.2%}   levered={result.levered_irr:.2%}")
-    print(f"  OpenVal (forward NOI):    unlevered={forward['unlevered_irr']:.2%}   levered={forward['levered_irr']:.2%}")
-    print(f"  DeLisle pre-tax target:   unlevered={DELISLE_PUBLISHED['unlevered_irr_pretax_target']:.2%}   levered={DELISLE_PUBLISHED['levered_irr_pretax_target']:.2%}")
-    print(f"  DeLisle pub'd after-tax:                                       levered={DELISLE_PUBLISHED['irr_y5_after_tax_published']:.2%}  (not comparable; we're pre-tax)")
-    print()
+    unl_tgt = DELISLE_PUBLISHED["unlevered_irr_pretax_target"]
+    lev_tgt = DELISLE_PUBLISHED["levered_irr_pretax_target"]
 
-    print(f"  Unlevered IRR diff vs target (forward NOI mode): {(forward['unlevered_irr'] - DELISLE_PUBLISHED['unlevered_irr_pretax_target']) * 100:+.2f} pp")
-    print(f"  Levered IRR diff vs target (forward NOI mode):   {(forward['levered_irr'] - DELISLE_PUBLISHED['levered_irr_pretax_target']) * 100:+.2f} pp")
+    print(f"  {'Convention':<32} {'UNL IRR':>9} {'Δ vs tgt':>10} {'LEV IRR':>9} {'Δ vs tgt':>10}")
+    print(f"  {'-' * 76}")
+    for label, conv in [
+        ("monthly (annualized, default)", "monthly_annualized"),
+        ("annual end-of-year (Excel)",     "annual_end_of_year"),
+        ("annual mid-year (Argus)",        "annual_mid_year"),
+    ]:
+        unl = result_forward.irr(convention=conv)
+        lev = result_forward.irr(convention=conv, levered=True)
+        d_unl = (unl - unl_tgt) * 100
+        d_lev = (lev - lev_tgt) * 100
+        print(f"  {label:<32} {unl:>9.2%} {d_unl:>+9.2f}p {lev:>9.2%} {d_lev:>+9.2f}p")
+    print()
+    print(f"  DeLisle pre-tax target:          {unl_tgt:>9.2%}            {lev_tgt:>9.2%}")
+    print(f"  DeLisle pub'd after-tax:                                {DELISLE_PUBLISHED['irr_y5_after_tax_published']:>9.2%}  (not comparable; we're pre-tax)")
     print()
 
     print("=" * 78)
@@ -216,8 +192,9 @@ def main() -> None:
     print("=" * 78)
     print("  - NOI year-by-year: tight match expected (math is straightforward).")
     print("  - Loan balance EOY5: should match within $100 (amortization math).")
-    print("  - Reversion (trailing-12 vs forward): ~4% expected diff = known OpenVal Phase 2 gap.")
-    print("  - With forward NOI override, IRR should land within ~50 bps of derived targets.")
+    print("  - Reversion: trailing leaves ~4% gap; forward NOI mode closes it natively.")
+    print("  - Unlevered IRR target (11.40%) lines up with the mid-year Argus convention.")
+    print("    Switch via result.irr(convention='annual_mid_year') to reproduce.")
 
 
 if __name__ == "__main__":

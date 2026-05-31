@@ -15,19 +15,22 @@ Triangulation: features mentioned by 3+ sources are **CORE** (table-stakes for a
 
 ## OpenVal coverage today
 
-- ✅ **Done** (Phase 1, v0.1.0): lease model, cashflow projector, NNN/MG/FSG recoveries, debt amortization (IO + balloon), reversion (trailing-12 NOI / cap), unlevered + levered IRR, equity multiple, rent step-ups, free rent, TI/LC
-- 🟡 **Partial**: percentage rent (data model only, no projector yet); recovery cap (annual only)
+- ✅ **Done** (Phase 1+, v0.1.0): lease model, cashflow projector, NNN/MG/FSG recoveries, debt amortization (IO + balloon), reversion (trailing-12 *and* forward-NOI / cap, selectable via `Property.reversion_basis`), unlevered + levered IRR (monthly / annual EOY / annual mid-year), equity multiple, rent step-ups, free rent, TI/LC, **Market Leasing Assumptions on rollover** (per-lease MLA → probability-weighted renewal/new branching with downtime / market growth / renewal discount, chaining through hold)
+- 🟡 **Partial**: percentage rent (data model only, no projector yet); recovery cap (annual only); MLA reimbursements during downtime (excluded today, Argus has a toggle)
 - ❌ **Gaps**: ~50 CORE features and ~80 STD/LONG-TAIL features. Top priorities laid out below.
 
 ## Roadmap impact
 
 **Phase 2 priorities** (closes the gap to "serious Argus alternative"):
-1. **Market Leasing Assumptions on rollover** — Argus's signature differentiator vs Excel. Every source ranked this #2-#3.
-2. **Forward NOI for reversion** — Argus convention (year N+1 / cap), not trailing-12. Currently a known accuracy gap.
+1. ~~**Market Leasing Assumptions on rollover**~~ — ✅ v1 shipped. Per-lease `MarketLeasingAssumption` triggers probability-weighted renewal/new branching with downtime, market-rent growth, renewal discount, new-vs-renewal free rent / TI / LC. Chains recursively through the hold. v2: promote to named property-level profiles (true Argus MLP), reimbursable recoveries during downtime toggle.
+2. ~~**Forward NOI for reversion**~~ — ✅ shipped; opt in via `Property(reversion_basis="forward")`. DeLisle Case 5 forward-NOI mode now matches published reversion within $10 and levered IRR within 0.5 pp of derived pre-tax target.
 3. **Vacancy & credit loss** — general vacancy, absorption & turnover vacancy, gross-up checkbox.
 4. **CSV/Excel rent roll import** — adoption blocker; nobody types in 200 leases by hand.
 5. **`.aeex` / `.aeix` import** — Argus's XML export format is public; parsing is tolerated (Forbury/Lightbox/Assess+RE all do it).
 6. **Sensitivity matrix** — IRR matrix on yield / growth / cap rate. Built-in feature competitors all replicate.
+
+**Bonus shipped:**
+- `UnderwritingResult.irr(convention=, levered=)` — monthly_annualized | annual_end_of_year | annual_mid_year. Lets users match their Excel or Argus yield outputs.
 
 **Phase 3+** (parity push):
 - Equity waterfalls (GP/LP, preferred return, promote tiers) — Argus itself offloads to ARGUS Taliance, most practitioners do this in Excel anyway

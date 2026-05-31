@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
 from openval.debt import Loan
 from openval.lease import Lease
+
+
+ReversionBasis = Literal["trailing", "forward"]
 
 
 class Property(BaseModel):
@@ -24,6 +27,11 @@ class Property(BaseModel):
     hold_years: int = Field(gt=0)
     exit_cap_rate: Decimal = Field(gt=0, le=1)
     sale_costs_pct: Decimal = Field(default=Decimal("0.02"), ge=0, le=Decimal("0.1"))
+    # "trailing": terminal value = trailing-12 NOI / cap (default; OpenVal Phase 1).
+    # "forward": terminal value = NOI for the 12 months *following* the hold period
+    # divided by cap (Argus convention). Requires opex_annual to cover the year
+    # after the hold ends.
+    reversion_basis: ReversionBasis = Field(default="trailing")
 
     loan: Optional[Loan] = None
 
@@ -38,4 +46,22 @@ class Property(BaseModel):
                 )
         if self.loan is not None and self.loan.principal >= self.acquisition_price:
             raise ValueError("loan principal must be less than acquisition price")
+        if self.reversion_basis == "forward":
+            self._check_forward_opex_coverage()
         return self
+
+    def _check_forward_opex_coverage(self) -> None:
+        """Forward NOI projects one extra year past the hold; opex must cover it."""
+        hold_end_year = self.acquisition_date.year + self.hold_years - 1
+        forward_year_start = hold_end_year + 1
+        # Hold can straddle calendar years; forward year can do the same.
+        forward_year_end = hold_end_year + 2 if self.acquisition_date.month > 1 else hold_end_year + 1
+        missing = [
+            y for y in range(forward_year_start, forward_year_end + 1)
+            if y not in self.opex_annual
+        ]
+        if missing:
+            raise ValueError(
+                f"reversion_basis='forward' requires opex_annual to cover the year "
+                f"following the hold period; missing year(s): {missing}"
+            )
