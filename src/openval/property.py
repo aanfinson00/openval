@@ -27,6 +27,10 @@ class Property(BaseModel):
     hold_years: int = Field(gt=0)
     exit_cap_rate: Decimal = Field(gt=0, le=1)
     sale_costs_pct: Decimal = Field(default=Decimal("0.02"), ge=0, le=Decimal("0.1"))
+    # Closing costs (legal, due diligence, lender fees, etc.) — fraction of
+    # acquisition_price added to the initial equity outlay. Not financed by
+    # the loan (loan principal is sized on acquisition_price only).
+    acquisition_costs_pct: Decimal = Field(default=Decimal("0"), ge=0, le=Decimal("0.1"))
     # "trailing": terminal value = trailing-12 NOI / cap (default; OpenVal Phase 1).
     # "forward": terminal value = NOI for the 12 months *following* the hold period
     # divided by cap (Argus convention). Requires opex_annual to cover the year

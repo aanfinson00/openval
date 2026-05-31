@@ -167,9 +167,10 @@ def project_property(prop: Property) -> UnderwritingResult:
     cf.loc[terminal_idx, "ncf_unlevered"] += reversion.net_sale
     cf.loc[terminal_idx, "ncf_levered"] += reversion.net_sale_to_equity
 
-    initial_equity_unlevered = float(prop.acquisition_price)
+    closing_costs = float(prop.acquisition_price) * float(prop.acquisition_costs_pct)
+    initial_equity_unlevered = float(prop.acquisition_price) + closing_costs
     initial_equity_levered = (
-        float(prop.acquisition_price) - float(prop.loan.principal)
+        initial_equity_unlevered - float(prop.loan.principal)
         if prop.loan is not None
         else initial_equity_unlevered
     )

@@ -231,6 +231,41 @@ def test_forward_basis_irr_exceeds_trailing_under_escalation():
     assert forward_result.unlevered_irr > trailing_result.unlevered_irr
 
 
+def test_acquisition_closing_costs_increase_equity_basis():
+    """Closing costs are added to initial equity → lower IRR + lower EM."""
+    baseline = project_property(_full_building_nnn())
+    with_costs = project_property(
+        Property(
+            **{
+                **_full_building_nnn().model_dump(),
+                "acquisition_costs_pct": Decimal("0.02"),  # 2% closing costs
+            }
+        )
+    )
+    # Closing costs increase initial equity → IRR drops
+    assert with_costs.unlevered_irr < baseline.unlevered_irr
+    # EM drops because denominator (equity) went up
+    assert with_costs.unlevered_equity_multiple < baseline.unlevered_equity_multiple
+    # Equity stored on result reflects the new basis
+    expected = float(Decimal("15000000")) * 1.02
+    assert with_costs.initial_equity_unlevered == pytest.approx(expected)
+
+
+def test_closing_costs_not_financed_by_loan():
+    """Loan principal sizing is on acquisition_price only; closing costs hit equity."""
+    base_dict = _full_building_nnn().model_dump()
+    base_dict["acquisition_costs_pct"] = Decimal("0.03")
+    base_dict["loan"] = Loan(
+        principal=Decimal("9000000"),
+        rate_annual=Decimal("0.055"),
+        amortization_years=30,
+        term_years=10,
+    )
+    result = project_property(Property(**base_dict))
+    # initial_equity_levered = (15M + 3% closing) - 9M loan = 6.45M
+    assert result.initial_equity_levered == pytest.approx(6_450_000)
+
+
 def test_general_vacancy_reduces_egi():
     """5% general vacancy on a 1.5M gross-rent year → 75k vacancy deduction."""
     prop = _full_building_nnn()
