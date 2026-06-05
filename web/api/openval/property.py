@@ -56,10 +56,20 @@ class Property(BaseModel):
     # "General Vacancy" — applied on top of (not instead of) absorption /
     # turnover vacancy captured by MLA downtime. Set to 0 to disable.
     general_vacancy_pct: Decimal = Field(default=Decimal("0"), ge=0, le=1)
+    # Per-year override of general_vacancy_pct. When a calendar year appears
+    # in this dict, all months in that year use this fraction instead of the
+    # flat `general_vacancy_pct`. Years not in the dict fall back to the flat
+    # value. Argus drift-fit knob: real deals usually show vacancy spiking
+    # during rollover years and settling lower during stabilized years; this
+    # field lets a stub mirror that without modeling tenant turnover.
+    general_vacancy_by_year: dict[int, Decimal] = Field(default_factory=dict)
     # Credit loss: fraction of gross potential rent deducted for bad debt /
     # collection loss. Industry rule of thumb is 0.5–1%. Argus's
     # "Credit Loss" / "Collection Loss" line.
     credit_loss_pct: Decimal = Field(default=Decimal("0"), ge=0, le=1)
+    # Per-year override of credit_loss_pct. Same semantics as
+    # `general_vacancy_by_year`.
+    credit_loss_by_year: dict[int, Decimal] = Field(default_factory=dict)
     # CPI rate series for CPI-indexed lease escalators. Year → CPI rate
     # (fraction). Lease.cpi_escalators read from this series; if a year
     # is missing, the escalator skips that year.

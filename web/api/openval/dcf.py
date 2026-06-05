@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal
 from enum import Enum
 from typing import Optional, Union
 
@@ -131,10 +132,12 @@ def project_property(prop: Property) -> UnderwritingResult:
     # negative line items. Argus separates vacancy (lost rent from unleased
     # space) from credit loss (uncollected rent from leased space); we
     # follow the same separation but apply both as fractions of gross rent.
-    vac_pct = float(prop.general_vacancy_pct)
-    cl_pct = float(prop.credit_loss_pct)
-    cf_full["general_vacancy"] = -cf_full["gross_rent"] * vac_pct if vac_pct else 0.0
-    cf_full["credit_loss"] = -cf_full["gross_rent"] * cl_pct if cl_pct else 0.0
+    cf_full["general_vacancy"] = -cf_full["gross_rent"] * _per_month_pct(
+        months_all, prop.general_vacancy_pct, prop.general_vacancy_by_year
+    )
+    cf_full["credit_loss"] = -cf_full["gross_rent"] * _per_month_pct(
+        months_all, prop.credit_loss_pct, prop.credit_loss_by_year
+    )
     cf_full["recoveries"] = recoveries_total
     cf_full["egi"] = (
         cf_full["gross_rent"]
@@ -335,6 +338,25 @@ def _compute_reversion(
         net_sale_to_equity=net_sale - loan_payoff,
         basis=prop.reversion_basis,
     )
+
+
+def _per_month_pct(
+    months: pd.DatetimeIndex,
+    flat_pct: Decimal,
+    by_year: dict[int, Decimal],
+) -> pd.Series:
+    """Build a month-indexed fraction series: per-year override wins,
+    otherwise the flat default applies. Returns float values so it can
+    multiply gross_rent directly.
+    """
+    base = float(flat_pct)
+    if not by_year:
+        return pd.Series(base, index=months) if base else pd.Series(0.0, index=months)
+    out = pd.Series(base, index=months)
+    for ts in months:
+        if ts.year in by_year:
+            out.loc[ts] = float(by_year[ts.year])
+    return out
 
 
 def _annual_to_monthly(annual: pd.Series, months: pd.DatetimeIndex) -> pd.Series:

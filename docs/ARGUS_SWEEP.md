@@ -28,7 +28,7 @@ _No stub registered — drift not computed. Add a stub to `scripts/argus_sweep.p
 
 ### Telephone Road
 
-**6 / 26 rows within $25** across Y1..Y10.
+**11 / 27 rows within $25** across Y1..Y10.
 
 | Row | Max abs drift | Verdict |
 | --- | --- | --- |
@@ -41,23 +41,24 @@ _No stub registered — drift not computed. Add a stub to `scripts/argus_sweep.p
 | Total Other Tenant Revenue | $299,794 | ✗ drift $299,794 |
 | Total Tenant Revenue | $1,553,343 | ✗ drift $1,553,343 |
 | Potential Gross Revenue | $1,553,343 | ✗ drift $1,553,343 |
-| Vacancy Allowance | $148,872 | ✗ drift $148,872 |
-| Credit Loss | $74,441 | ✗ drift $74,441 |
-| Total Vacancy & Credit Loss | $223,313 | ✗ drift $223,313 |
-| Effective Gross Revenue | $1,678,614 | ✗ drift $1,678,614 |
+| Vacancy Allowance | $0 | ✓ within $25 |
+| Credit Loss | $0 | ✓ within $25 |
+| Total Vacancy & Credit Loss | $11 | ✓ within $25 |
+| Effective Gross Revenue | $1,553,344 | ✗ drift $1,553,344 |
 | Real Estate Taxes | $0 | ✓ within $25 |
 | Insurance | $0 | ✓ within $25 |
 | Property Management Fee | $0 | ✓ within $25 |
 | CAM | $0 | ✓ within $25 |
 | Total Operating Expenses | $12 | ✓ within $25 |
-| Net Operating Income | $1,678,610 | ✗ drift $1,678,610 |
+| Net Operating Income | $1,553,356 | ✗ drift $1,553,356 |
 | Tenant Improvements | $906,452 | ✗ drift $906,452 |
 | Leasing Commissions | $967,706 | ✗ drift $967,706 |
 | Total Leasing Costs | $1,874,158 | ✗ drift $1,874,158 |
-| Total Capital Expenditures | $76,884 | ✗ drift $76,884 |
-| Total Leasing & Capital Costs | $1,951,043 | ✗ drift $1,951,043 |
-| Cash Flow Before Debt Service | $3,629,658 | ✗ drift $3,629,658 |
-| Cash Flow Available for Distribution | $3,629,658 | ✗ drift $3,629,658 |
+| Capital Reserves | $0 | ✓ within $25 |
+| Total Capital Expenditures | $0 | ✓ within $25 |
+| Total Leasing & Capital Costs | $1,874,159 | ✗ drift $1,874,159 |
+| Cash Flow Before Debt Service | $3,389,505 | ✗ drift $3,389,505 |
+| Cash Flow Available for Distribution | $3,389,505 | ✗ drift $3,389,505 |
 
 ### Unbound Gateway - Phase I
 

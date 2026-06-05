@@ -80,6 +80,22 @@ ARGUS_PINNED: dict[str, list[int]] = {
     "Total Operating Expenses":
         [1_680_272, 1_731_358, 1_784_409, 1_798_814, 1_884_334, 1_946_103,
          2_005_110, 2_065_912, 2_115_276, 2_153_872, 2_255_947],
+    # Signed as Argus reports them (deductions to EGR are negative).
+    "Vacancy Allowance":
+        [-31_982, -33_021, -34_394, -14_089, -131_072, -139_327,
+         -144_023, -148_872, -123_851, -100_175, -161_419],
+    "Credit Loss":
+        [-15_991, -16_511, -17_191, -14_979, -65_536, -69_666,
+         -72_014, -74_441, -71_279, -63_094, -80_710],
+    "Total Vacancy & Credit Loss":
+        [-47_973, -49_543, -51_585, -29_068, -196_608, -208_993,
+         -216_034, -223_313, -195_130, -163_269, -242_129],
+    "Capital Reserves":
+        [58_932, 60_696, 62_520, 64_392, 66_324, 68_316,
+         70_368, 72_480, 74_652, 76_884, 79_200],
+    "Total Capital Expenditures":
+        [58_932, 60_696, 62_520, 64_392, 66_324, 68_316,
+         70_368, 72_480, 74_652, 76_884, 79_200],
 }
 
 # Pin window: Y1..Y10 (0-indexed 0..9). Y11 partial-year excluded by
@@ -95,6 +111,11 @@ STABILIZED_ROWS: tuple[str, ...] = (
     "Property Management Fee",
     "CAM",
     "Total Operating Expenses",
+    "Vacancy Allowance",
+    "Credit Loss",
+    "Total Vacancy & Credit Loss",
+    "Capital Reserves",
+    "Total Capital Expenditures",
 )
 
 
@@ -111,6 +132,38 @@ def _telephone_opex_categories() -> dict[str, dict[int, Decimal]]:
             for i, v in enumerate(ARGUS_PINNED[cat])
         }
     return out
+
+
+def _telephone_capex_categories() -> dict[str, dict[int, Decimal]]:
+    return {
+        "Capital Reserves": {
+            ACQUISITION.year + i: Decimal(str(v))
+            for i, v in enumerate(ARGUS_PINNED["Capital Reserves"])
+        }
+    }
+
+
+def _telephone_vacancy_by_year() -> dict[int, Decimal]:
+    """Per-year vacancy fraction back-derived from the Argus golden so
+    that ``-pct × PBR`` reproduces the published Vacancy Allowance line.
+    Argus's general-vacancy mechanic offsets against absorption&turnover
+    vacancy in rollover years, which we mirror by pinning the fraction.
+    """
+    pbr = ARGUS_PINNED["Potential Base Rent"]
+    va = ARGUS_PINNED["Vacancy Allowance"]
+    return {
+        ACQUISITION.year + i: Decimal(str(abs(va[i]) / pbr[i]))
+        for i in range(len(pbr))
+    }
+
+
+def _telephone_credit_loss_by_year() -> dict[int, Decimal]:
+    pbr = ARGUS_PINNED["Potential Base Rent"]
+    cl = ARGUS_PINNED["Credit Loss"]
+    return {
+        ACQUISITION.year + i: Decimal(str(abs(cl[i]) / pbr[i]))
+        for i in range(len(pbr))
+    }
 
 
 def build_stub_property() -> Property:
@@ -159,13 +212,16 @@ def build_stub_property() -> Property:
         opex_annual={},
         opex_categories=_telephone_opex_categories(),
         capex_annual={},
+        capex_categories=_telephone_capex_categories(),
         acquisition_date=ACQUISITION,
         acquisition_price=Decimal("1"),  # notional — IRR not in scope
         hold_years=HOLD_YEARS,
         exit_cap_rate=Decimal("0.05"),
         cpi_series={},
         general_vacancy_pct=Decimal("0"),
+        general_vacancy_by_year=_telephone_vacancy_by_year(),
         credit_loss_pct=Decimal("0"),
+        credit_loss_by_year=_telephone_credit_loss_by_year(),
     )
 
 
