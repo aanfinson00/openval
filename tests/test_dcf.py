@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
+import pandas as pd
 import pytest
 
 from openval import (
@@ -229,6 +230,80 @@ def test_forward_basis_irr_exceeds_trailing_under_escalation():
     trailing_result = project_property(_escalating_nnn("trailing"))
     forward_result = project_property(_escalating_nnn("forward"))
     assert forward_result.unlevered_irr > trailing_result.unlevered_irr
+
+
+def test_stabilized_noi_and_going_in_cap():
+    """Going-in cap = Y1 NOI / price. Stabilized cap uses Y2."""
+    result = project_property(_full_building_nnn())
+    # Y1 NOI = $1.5M, price = $15M, going-in = 10%
+    assert result.going_in_cap == pytest.approx(0.10, abs=1e-3)
+    # Y2 NOI is also $1.5M (flat lease), stabilized cap = 10%
+    assert result.stabilized_cap == pytest.approx(0.10, abs=1e-3)
+    assert result.stabilized_noi == pytest.approx(1_500_000, rel=1e-4)
+
+
+def test_dscr_and_debt_yield_present_with_loan():
+    """When a loan exists, dscr and debt_yield columns are populated."""
+    prop = _full_building_nnn()
+    levered = Property(
+        **{**prop.model_dump(), "loan": Loan(
+            principal=Decimal("9000000"),
+            rate_annual=Decimal("0.055"),
+            amortization_years=30,
+            term_years=10,
+        )}
+    )
+    result = project_property(levered)
+    # DSCR should be > 1 for this deal (10% on cost > 5.5% debt yield)
+    eoy_dscr = result.cashflows.loc["2026-12-01", "dscr"]
+    assert eoy_dscr > 1.5
+    # Debt yield = NOI / loan_balance; should be > 8% here
+    eoy_dy = result.cashflows.loc["2026-12-01", "debt_yield"]
+    assert eoy_dy > 0.08
+
+
+def test_dscr_and_debt_yield_absent_without_loan():
+    result = project_property(_full_building_nnn())
+    # No loan → dscr and debt_yield columns exist but are NA
+    assert "dscr" in result.cashflows.columns
+    assert "debt_yield" in result.cashflows.columns
+    assert pd.isna(result.cashflows["dscr"]).all()
+    assert pd.isna(result.cashflows["debt_yield"]).all()
+
+
+def test_acquisition_closing_costs_increase_equity_basis():
+    """Closing costs are added to initial equity → lower IRR + lower EM."""
+    baseline = project_property(_full_building_nnn())
+    with_costs = project_property(
+        Property(
+            **{
+                **_full_building_nnn().model_dump(),
+                "acquisition_costs_pct": Decimal("0.02"),  # 2% closing costs
+            }
+        )
+    )
+    # Closing costs increase initial equity → IRR drops
+    assert with_costs.unlevered_irr < baseline.unlevered_irr
+    # EM drops because denominator (equity) went up
+    assert with_costs.unlevered_equity_multiple < baseline.unlevered_equity_multiple
+    # Equity stored on result reflects the new basis
+    expected = float(Decimal("15000000")) * 1.02
+    assert with_costs.initial_equity_unlevered == pytest.approx(expected)
+
+
+def test_closing_costs_not_financed_by_loan():
+    """Loan principal sizing is on acquisition_price only; closing costs hit equity."""
+    base_dict = _full_building_nnn().model_dump()
+    base_dict["acquisition_costs_pct"] = Decimal("0.03")
+    base_dict["loan"] = Loan(
+        principal=Decimal("9000000"),
+        rate_annual=Decimal("0.055"),
+        amortization_years=30,
+        term_years=10,
+    )
+    result = project_property(Property(**base_dict))
+    # initial_equity_levered = (15M + 3% closing) - 9M loan = 6.45M
+    assert result.initial_equity_levered == pytest.approx(6_450_000)
 
 
 def test_general_vacancy_reduces_egi():

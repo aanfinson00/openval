@@ -5,12 +5,19 @@ Usage:
 
 Preserves all input sheets. Overwrites or appends:
 
-    cashflows         monthly DCF detail
-    annual_summary    year-by-year NOI / BTCF rollup
-    reversion         terminal NOI, gross/net sale, loan payoff
-    irr_summary       UNL + LEV IRR under all three conventions; EM
-    yield_matrix      year-by-year going-in / current yield on cost
-    sensitivity       5x5 grid: exit cap rate × acquisition price (mid-year IRR)
+    rent_roll_in        property snapshot at acquisition
+    mark_to_market      per-lease in-place vs market rent
+    cashflows           monthly DCF detail
+    annual_summary      year-by-year NOI / BTCF rollup
+    cashflow_report     Full Argus "Cash Flow" block (PBR -> Cash Flow
+                        Available for Distribution), fiscal-year columns
+                        anchored on acquisition_date
+    reversion           terminal NOI, gross/net sale, loan payoff
+    irr_summary         UNL + LEV IRR under all three conventions; EM
+    yield_matrix        year-by-year going-in / current yield on cost
+    waterfall_schedule  monthly LP/GP distribution detail
+    waterfall_summary   LP/GP contributed, EM, IRR
+    sensitivity         5x5 grid: exit cap rate × acquisition price (mid-year IRR)
 """
 
 from __future__ import annotations
@@ -29,113 +36,50 @@ from openval import (
     Lease,
     Loan,
     MarketLeasingAssumption,
+    PromoteTier,
     Property,
+    Refinance,
+    Waterfall,
+    argus_cashflow_report,
+    mark_to_market,
     project_property,
+    rent_roll_summary,
+    run_waterfall,
     sensitivity,
 )
-from openval.io.rent_roll import read_rent_roll_excel
+from openval.io import read_property_workbook
+from openval.io.workbook import _read_kv  # waterfall sheet not in Property
 
 
 # ----------------------------------------------------------------------
-# Sheet readers — each tab maps to a single concept
+# Waterfall reader — Property construction lives in openval.io.workbook,
+# but the workbook also has a waterfall sheet that isn't part of Property
+# and stays here.
 # ----------------------------------------------------------------------
 
 
-def _read_kv(path: Path, sheet: str) -> dict:
-    df = pd.read_excel(path, sheet_name=sheet, dtype=object)
-    df.columns = [c.strip().lower() for c in df.columns]
-    return {str(row["field"]).strip(): row["value"] for _, row in df.iterrows()}
-
-
-def _read_opex(path: Path) -> dict[int, Decimal]:
-    df = pd.read_excel(path, sheet_name="opex", dtype=object)
-    return {int(r["year"]): Decimal(str(r["annual_opex"])) for _, r in df.iterrows()}
-
-
-def _read_capex(path: Path) -> dict[int, Decimal]:
-    try:
-        df = pd.read_excel(path, sheet_name="capex", dtype=object)
-    except (ValueError, KeyError):
-        return {}
-    return {int(r["year"]): Decimal(str(r["annual_capex"])) for _, r in df.iterrows()}
-
-
-def _read_mla(path: Path) -> dict[str, MarketLeasingAssumption]:
-    try:
-        df = pd.read_excel(path, sheet_name="mla", dtype=object)
-    except (ValueError, KeyError):
-        return {}
-    out = {}
-    for _, r in df.iterrows():
-        out[str(r["suite_id"])] = MarketLeasingAssumption(
-            market_rent_psf=Decimal(str(r["market_rent_psf"])),
-            market_rent_growth_pct=Decimal(str(r["market_rent_growth_pct"])),
-            new_term_months=int(r["new_term_months"]),
-            rent_escalation_pct=Decimal(str(r["rent_escalation_pct"])),
-            free_rent_months_new=int(r["free_rent_months_new"]),
-            free_rent_months_renewal=int(r["free_rent_months_renewal"]),
-            ti_psf_new=Decimal(str(r["ti_psf_new"])),
-            ti_psf_renewal=Decimal(str(r["ti_psf_renewal"])),
-            lc_pct_new=Decimal(str(r["lc_pct_new"])),
-            lc_pct_renewal=Decimal(str(r["lc_pct_renewal"])),
-            renewal_probability=Decimal(str(r["renewal_probability"])),
-            downtime_months_new=int(r["downtime_months_new"]),
-            renewal_market_discount_pct=Decimal(str(r["renewal_market_discount_pct"])),
-            expense_structure=ExpenseStructure(str(r["expense_structure"]).strip().upper()),
-        )
-    return out
-
-
-def _coerce_date(v):
-    if isinstance(v, datetime):
-        return v.date()
-    if isinstance(v, str):
-        return datetime.fromisoformat(v).date()
-    return v
-
-
-def _build_property(path: Path) -> Property:
-    prop_kv = _read_kv(path, "property")
-    timing_kv = _read_kv(path, "timing")
-    purchase_kv = _read_kv(path, "purchase")
-    debt_kv = _read_kv(path, "debt")
-    vac_kv = _read_kv(path, "vacancy_credit")
-
-    leases = read_rent_roll_excel(path, leases_sheet="leases", rent_steps_sheet="rent_steps")
-    mlas = _read_mla(path)
-    if mlas:
-        leases = [
-            l.model_copy(update={"market_leasing_assumption": mlas[l.suite_id]})
-            if l.suite_id in mlas
-            else l
-            for l in leases
-        ]
-
-    loan: Optional[Loan] = None
-    if debt_kv.get("loan_principal"):
-        loan = Loan(
-            principal=Decimal(str(debt_kv["loan_principal"])),
-            rate_annual=Decimal(str(debt_kv["loan_rate_annual"])),
-            amortization_years=int(debt_kv["loan_amortization_years"]),
-            term_years=int(debt_kv["loan_term_years"]),
-            interest_only_years=int(debt_kv.get("loan_interest_only_years") or 0),
-        )
-
-    return Property(
-        name=str(prop_kv["name"]),
-        rentable_sf=int(prop_kv["rentable_sf"]),
-        leases=leases,
-        opex_annual=_read_opex(path),
-        capex_annual=_read_capex(path),
-        acquisition_date=_coerce_date(timing_kv["acquisition_date"]),
-        acquisition_price=Decimal(str(purchase_kv["acquisition_price"])),
-        hold_years=int(timing_kv["hold_years"]),
-        exit_cap_rate=Decimal(str(purchase_kv["exit_cap_rate"])),
-        sale_costs_pct=Decimal(str(purchase_kv.get("sale_costs_pct", "0.02"))),
-        reversion_basis=str(timing_kv.get("reversion_basis", "trailing")).strip().lower(),
-        general_vacancy_pct=Decimal(str(vac_kv.get("general_vacancy_pct", "0"))),
-        credit_loss_pct=Decimal(str(vac_kv.get("credit_loss_pct", "0"))),
-        loan=loan,
+def _read_waterfall(path: Path) -> Optional[Waterfall]:
+    kv = _read_kv(path, "waterfall")
+    if not kv or "lp_equity_share" not in kv:
+        return None
+    tiers: list[PromoteTier] = []
+    for i in (1, 2, 3, 4, 5):
+        hurdle = kv.get(f"tier{i}_lp_irr_hurdle")
+        promote = kv.get(f"tier{i}_gp_promote_pct")
+        if hurdle is None or promote is None:
+            continue
+        if (isinstance(hurdle, float) and pd.isna(hurdle)) or \
+           (isinstance(promote, float) and pd.isna(promote)):
+            continue
+        tiers.append(PromoteTier(
+            lp_irr_hurdle=Decimal(str(hurdle)),
+            gp_promote_pct=Decimal(str(promote)),
+        ))
+    return Waterfall(
+        lp_equity_share=Decimal(str(kv["lp_equity_share"])),
+        gp_equity_share=Decimal(str(kv["gp_equity_share"])),
+        preferred_return_pct=Decimal(str(kv.get("preferred_return_pct", "0"))),
+        promote_tiers=tiers,
     )
 
 
@@ -147,11 +91,14 @@ def _build_property(path: Path) -> Property:
 def _annual_summary(cf: pd.DataFrame) -> pd.DataFrame:
     by_year = cf.groupby(cf.index.year).sum()
     by_year.index.name = "year"
-    return by_year[
-        ["gross_rent", "free_rent_abatement", "general_vacancy", "credit_loss",
-         "recoveries", "egi", "opex", "noi", "capex", "ti", "lc",
-         "debt_service", "ncf_unlevered", "ncf_levered"]
-    ].round(0)
+    columns = [
+        "gross_rent", "free_rent_abatement", "percentage_rent",
+        "general_vacancy", "credit_loss", "recoveries", "egi",
+        "opex", "noi", "capex", "ti", "lc", "debt_service",
+        "refi_proceeds", "ncf_unlevered", "ncf_levered",
+    ]
+    available = [c for c in columns if c in by_year.columns]
+    return by_year[available].round(0)
 
 
 def _irr_summary(result) -> pd.DataFrame:
@@ -161,16 +108,32 @@ def _irr_summary(result) -> pd.DataFrame:
         lev = result.irr(convention=conv, levered=True)
         rows.append(
             {
-                "convention": conv.value,
-                "unlevered_irr": None if unl is None else round(unl, 4),
-                "levered_irr": None if lev is None else round(lev, 4),
+                "metric": f"IRR ({conv.value})",
+                "unlevered": None if unl is None else round(unl, 4),
+                "levered": None if lev is None else round(lev, 4),
             }
         )
     rows.append({
-        "convention": "equity_multiple (total CF / equity)",
-        "unlevered_irr": round(result.unlevered_equity_multiple, 4),
-        "levered_irr": None if result.levered_equity_multiple is None
-                       else round(result.levered_equity_multiple, 4),
+        "metric": "Equity multiple",
+        "unlevered": round(result.unlevered_equity_multiple, 4),
+        "levered": None if result.levered_equity_multiple is None
+                   else round(result.levered_equity_multiple, 4),
+    })
+    rows.append({
+        "metric": "Initial equity",
+        "unlevered": round(result.initial_equity_unlevered, 0),
+        "levered": None if result.initial_equity_levered is None
+                   else round(result.initial_equity_levered, 0),
+    })
+    rows.append({
+        "metric": "Going-in cap rate",
+        "unlevered": round(result.going_in_cap, 4),
+        "levered": None,
+    })
+    rows.append({
+        "metric": "Stabilized cap rate",
+        "unlevered": round(result.stabilized_cap, 4),
+        "levered": None,
     })
     return pd.DataFrame(rows)
 
@@ -192,7 +155,6 @@ def _reversion_detail(result) -> pd.DataFrame:
 
 
 def _yield_matrix(prop: Property, cf: pd.DataFrame) -> pd.DataFrame:
-    """Year-by-year going-in cap (NOI/price) — the canonical CRE yield metric."""
     price = float(prop.acquisition_price)
     by_year = cf.groupby(cf.index.year)["noi"].sum()
     rows = []
@@ -229,6 +191,28 @@ def _sensitivity_grid(prop: Property) -> pd.DataFrame:
     return grid.round(4)
 
 
+def _waterfall_summary(wf_result) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            ("lp_contributed", round(wf_result.lp_contributed, 0)),
+            ("gp_contributed", round(wf_result.gp_contributed, 0)),
+            ("lp_total_distributions", round(wf_result.schedule["lp_distribution"].sum(), 0)),
+            ("gp_total_distributions", round(wf_result.schedule["gp_distribution"].sum(), 0)),
+            ("lp_equity_multiple",
+                round(wf_result.lp_equity_multiple, 4)),
+            ("gp_equity_multiple",
+                round(wf_result.gp_equity_multiple, 4)),
+            ("lp_irr (monthly→annual)",
+                None if wf_result.lp_irr_monthly_annualized is None
+                else round(wf_result.lp_irr_monthly_annualized, 4)),
+            ("gp_irr (monthly→annual)",
+                None if wf_result.gp_irr_monthly_annualized is None
+                else round(wf_result.gp_irr_monthly_annualized, 4)),
+        ],
+        columns=["metric", "value"],
+    )
+
+
 # ----------------------------------------------------------------------
 # Main
 # ----------------------------------------------------------------------
@@ -241,21 +225,41 @@ def main() -> None:
     if not path.exists():
         sys.exit(f"workbook not found: {path}")
 
-    prop = _build_property(path)
+    prop = read_property_workbook(path)
     result = project_property(prop)
 
     cf_for_excel = result.cashflows.copy()
     cf_for_excel.index = cf_for_excel.index.strftime("%Y-%m-%d")
     cf_for_excel = cf_for_excel.round(2)
 
-    output_sheets = {
+    output_sheets: dict[str, tuple[pd.DataFrame, bool]] = {
+        "rent_roll_in": (rent_roll_summary(prop), False),
+        "mark_to_market": (mark_to_market(prop), False),
         "cashflows": (cf_for_excel, True),
         "annual_summary": (_annual_summary(result.cashflows), True),
+        # Full Argus "Cash Flow" report — 34 rows (income through cash flow
+        # available for distribution). Fiscal-year columns anchored on
+        # acquisition. Sub-rows for opex/capex categories show as blank
+        # pending the Phase B schema lift (Property.opex_categories,
+        # Property.capex_categories).
+        "cashflow_report": (argus_cashflow_report(result, prop).round(0), True),
         "reversion": (_reversion_detail(result), False),
         "irr_summary": (_irr_summary(result), False),
         "yield_matrix": (_yield_matrix(prop, result.cashflows), False),
         "sensitivity": (_sensitivity_grid(prop), True),
     }
+
+    waterfall = _read_waterfall(path)
+    if waterfall is not None and result.initial_equity_levered:
+        try:
+            wf = run_waterfall(result, waterfall)
+            wf_sched = wf.schedule.copy()
+            wf_sched.index = wf_sched.index.strftime("%Y-%m-%d")
+            wf_sched = wf_sched.round(2)
+            output_sheets["waterfall_schedule"] = (wf_sched, True)
+            output_sheets["waterfall_summary"] = (_waterfall_summary(wf), False)
+        except ValueError as e:
+            print(f"waterfall skipped: {e}")
 
     with pd.ExcelWriter(path, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
         for name, (df, with_index) in output_sheets.items():
@@ -264,14 +268,19 @@ def main() -> None:
     print(f"Wrote outputs to {path}: {', '.join(output_sheets)}")
     print()
     print(f"Property: {prop.name}")
-    print(f"  unlevered IRR (monthly):   {result.unlevered_irr:.2%}")
+    print(f"  going-in cap:              {result.going_in_cap:.2%}")
+    print(f"  stabilized cap:            {result.stabilized_cap:.2%}")
     print(f"  unlevered IRR (mid-year):  {result.irr(convention=IrrConvention.ANNUAL_MID_YEAR):.2%}")
     if result.levered_irr is not None:
-        print(f"  levered IRR (monthly):     {result.levered_irr:.2%}")
         print(f"  levered IRR (mid-year):    {result.irr(convention=IrrConvention.ANNUAL_MID_YEAR, levered=True):.2%}")
     print(f"  unlevered EM:              {result.unlevered_equity_multiple:.2f}x")
     print(f"  terminal NOI ({result.reversion.basis}):  ${result.reversion.terminal_noi:,.0f}")
     print(f"  net sale:                  ${result.reversion.net_sale:,.0f}")
+    if waterfall is not None and "waterfall_summary" in output_sheets:
+        print()
+        wf_summary_df = output_sheets["waterfall_summary"][0]
+        for _, row in wf_summary_df.iterrows():
+            print(f"  {row['metric']:<32} {row['value']}")
 
 
 if __name__ == "__main__":
