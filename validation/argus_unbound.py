@@ -84,7 +84,20 @@ ARGUS_PINNED: dict[str, list[int]] = {
     "Effective Gross Revenue":
         [1_623_097, 6_270_989, 6_459_116, 6_652_888, 6_852_473, 7_058_044,
          7_269_788, 7_487_885, 7_712_522, 7_943_891, 6_020_641],
-    # Lower block — opex through bottom-line cash flow.
+    # Lower block — opex (with category sub-rows), NOI, leasing/capex
+    # (with sub-rows), and bottom-line cash flow.
+    "Real Estate Taxes":
+        [860_004, 885_804, 912_372, 939_744, 967_932, 996_972,
+         1_026_888, 1_057_692, 1_089_420, 1_122_108, 1_155_768],
+    "Insurance":
+        [240_000, 247_200, 254_616, 262_260, 270_120, 278_220,
+         286_572, 295_164, 304_020, 313_140, 322_536],
+    "Property Management Fee":
+        [64_923, 250_838, 258_369, 266_116, 274_098, 282_322,
+         290_791, 299_512, 308_504, 317_760, 240_827],
+    "CAM":
+        [345_000, 355_356, 366_012, 376_992, 388_296, 399_948,
+         411_948, 424_308, 437_040, 450_144, 463_656],
     "Total Operating Expenses":
         [1_509_927, 1_739_191, 1_791_369, 1_845_107, 1_900_458, 1_957_474,
          2_016_199, 2_076_688, 2_138_984, 2_203_152, 2_182_787],
@@ -103,6 +116,8 @@ ARGUS_PINNED: dict[str, list[int]] = {
         [12_071_870, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5_030_400],
     "Non-Leasing Capital Expense":
         [6_522_072, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "Capital Reserves":
+        [0, 0, 57_072, 58_776, 60_540, 62_352, 64_224, 66_156, 68_136, 70_188, 72_288],
     "Total Capital Expenditures":
         [6_522_072, 0, 57_072, 58_776, 60_540, 62_352, 64_224, 66_156, 68_136, 70_188, 72_288],
     "Total Leasing & Capital Costs":
@@ -126,11 +141,12 @@ ARGUS_PINNED: dict[str, list[int]] = {
 STABILIZED_YEAR_INDEXES: tuple[int, ...] = tuple(range(0, 10))  # Y1..Y10 (0-indexed: 0..9)
 
 # Rows we lock in CI. Section headers and label-only rows are skipped (NaN).
-# The lower-block rows below ``Net Operating Income`` (Tenant Improvements,
-# Leasing Commissions, Capital Reserves, etc.) live in ``ARGUS_PINNED``
-# but aren't in STABILIZED_ROWS yet — they require the stub to carry the
-# matching ti_psf / lc_pct / capex_annual inputs, which Phase B will wire.
+# Covers the full Argus block — top-line income, opex (incl. all 4 sub-rows),
+# NOI, leasing costs, capital expenditures (with sub-rows), and bottom-line
+# cash flow. Drift in Y11 is excluded (Y11 has rollover that the stub models
+# as instant renewal vs Argus's explicit downtime + free rent).
 STABILIZED_ROWS: tuple[str, ...] = (
+    # Income block
     "Potential Base Rent",
     "Absorption & Turnover Vacancy",
     "Free Rent",
@@ -141,8 +157,25 @@ STABILIZED_ROWS: tuple[str, ...] = (
     "Potential Gross Revenue",
     "Total Vacancy & Credit Loss",
     "Effective Gross Revenue",
+    # Operating expenses
+    "Real Estate Taxes",
+    "Insurance",
+    "Property Management Fee",
+    "CAM",
     "Total Operating Expenses",
+    # NOI
     "Net Operating Income",
+    # Leasing & capital costs
+    "Tenant Improvements",
+    "Leasing Commissions",
+    "Total Leasing Costs",
+    "Capital Reserves",
+    "Non-Leasing Capital Expense",
+    "Total Capital Expenditures",
+    "Total Leasing & Capital Costs",
+    # Bottom-line cash flow
+    "Cash Flow Before Debt Service",
+    "Cash Flow Available for Distribution",
 )
 
 # Derived for the lease builder — Argus PBR Y1..Y11 in PSF order.
@@ -167,12 +200,62 @@ ARGUS_OPEX_BY_YEAR: list[int] = [
     2_016_199, 2_076_688, 2_138_984, 2_203_152, 2_182_787,
 ]
 
+# Per-category opex breakdown (Y1..Y11). Sum of categories matches the
+# Total Operating Expenses line within ~$25/year — Argus's monthly cells
+# round to whole dollars, so the per-category annual sums (12 rounded
+# cells each) drift slightly from Argus's own Total column (which sums
+# un-rounded internals).
+ARGUS_OPEX_CATEGORIES: dict[str, list[int]] = {
+    "Real Estate Taxes":
+        [860_004, 885_804, 912_372, 939_744, 967_932, 996_972,
+         1_026_888, 1_057_692, 1_089_420, 1_122_108, 1_155_768],
+    "Insurance":
+        [240_000, 247_200, 254_616, 262_260, 270_120, 278_220,
+         286_572, 295_164, 304_020, 313_140, 322_536],
+    "Property Management Fee":
+        [64_923, 250_838, 258_369, 266_116, 274_098, 282_322,
+         290_791, 299_512, 308_504, 317_760, 240_827],
+    "CAM":
+        [345_000, 355_356, 366_012, 376_992, 388_296, 399_948,
+         411_948, 424_308, 437_040, 450_144, 463_656],
+}
 
-def _unbound_opex_schedule() -> dict[int, Decimal]:
-    """Argus's actual opex schedule (Y1..Y11), keyed by calendar year."""
+# Capex breakdown. Argus splits into a one-time Y1 "Non-Leasing Capital
+# Expense" (initial build-out) and a recurring "Capital Reserves" line
+# that starts Y3 and grows 3%/yr.
+ARGUS_CAPEX_CATEGORIES: dict[str, list[int]] = {
+    "Non-Leasing Capital Expense":
+        [6_522_072, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "Capital Reserves":
+        [0, 0, 57_072, 58_776, 60_540, 62_352, 64_224, 66_156, 68_136, 70_188, 72_288],
+}
+
+# Unbound lease economics — back-derived from Argus Y1 TI / LC.
+# With area_sf=1, ti_psf is just dollars of TI.
+UNBOUND_TI_PSF = Decimal("7643630")
+# First-year rent for the lease (Jun-2026 → May-2027) crosses two rent
+# steps: 7 mo at Y1 rate + 5 mo at Y2 rate = $4,486,325.08.
+# Argus Y1 LC = $4,428,240 → lc_pct = 4_428_240 / 4_486_325.08 ≈ 0.9870528590.
+# Higher precision needed: lc_amount = lc_pct × first_year_rent rounds at
+# whole-dollar scale; a 4-decimal lc_pct drifts ~$30 vs Argus.
+UNBOUND_LC_PCT_FIRST_YEAR_RENT = Decimal("0.98705286")
+
+
+def _unbound_opex_categories() -> dict[str, dict[int, Decimal]]:
     return {
-        ACQUISITION.year + i: Decimal(str(v))
-        for i, v in enumerate(ARGUS_OPEX_BY_YEAR)
+        cat: {ACQUISITION.year + i: Decimal(str(v)) for i, v in enumerate(values)}
+        for cat, values in ARGUS_OPEX_CATEGORIES.items()
+    }
+
+
+def _unbound_capex_categories() -> dict[str, dict[int, Decimal]]:
+    return {
+        cat: {
+            ACQUISITION.year + i: Decimal(str(v))
+            for i, v in enumerate(values)
+            if v != 0  # skip zero-value years to keep the dict tight
+        }
+        for cat, values in ARGUS_CAPEX_CATEGORIES.items()
     }
 
 
@@ -224,6 +307,8 @@ def build_stub_property() -> Property:
         # MLA's free_rent_months_new applies only to speculative rollover
         # segments that the MLA itself spawns.
         free_rent_months=FREE_RENT_MONTHS,
+        ti_psf=UNBOUND_TI_PSF,
+        lc_pct_first_year_rent=UNBOUND_LC_PCT_FIRST_YEAR_RENT,
         expense_structure=ExpenseStructure.NNN,
         market_leasing_assumption=mla,
     )
@@ -232,8 +317,12 @@ def build_stub_property() -> Property:
         name="Unbound Gateway - Phase I (OpenVal stub)",
         rentable_sf=1,
         leases=[lease],
-        opex_annual=_unbound_opex_schedule(),
+        # opex_annual is auto-derived from opex_categories by the Property
+        # before-validator; same pattern for capex.
+        opex_annual={},
+        opex_categories=_unbound_opex_categories(),
         capex_annual={},
+        capex_categories=_unbound_capex_categories(),
         acquisition_date=ACQUISITION,
         acquisition_price=Decimal("1"),  # notional — we're not computing IRR
         hold_years=HOLD_YEARS,
