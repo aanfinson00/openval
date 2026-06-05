@@ -12,6 +12,7 @@ type TabKey =
   | "vacancy"
   | "opex"
   | "capex"
+  | "debt"
   | "reversion";
 
 const TABS: { key: TabKey; label: string }[] = [
@@ -21,6 +22,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "vacancy", label: "Vacancy" },
   { key: "opex", label: "OpEx" },
   { key: "capex", label: "CapEx" },
+  { key: "debt", label: "Debt" },
   { key: "reversion", label: "Reversion" },
 ];
 
@@ -71,6 +73,7 @@ export function Sidebar({ payload, onChange }: Props) {
         {active === "vacancy" && <VacancyTab payload={payload} onChange={onChange} />}
         {active === "opex" && <OpexTab payload={payload} onChange={onChange} />}
         {active === "capex" && <CapexTab payload={payload} onChange={onChange} />}
+        {active === "debt" && <DebtTab payload={payload} onChange={onChange} />}
         {active === "reversion" && <ReversionTab payload={payload} onChange={onChange} />}
       </div>
       <div className="px-3 pb-3 border-t border-slate-200 dark:border-slate-800 pt-2 space-y-1">
@@ -197,6 +200,112 @@ function OpexTab({ payload, onChange }: Props) {
       defaultCategories={["Real Estate Taxes", "Insurance", "Property Management Fee", "CAM"]}
       onChange={(next) => onChange({ ...payload, opex_categories: next })}
     />
+  );
+}
+
+function DebtTab({ payload, onChange }: Props) {
+  const loan = (payload.loan as Record<string, unknown> | undefined) || null;
+  const refinance = (payload.refinance as Record<string, unknown> | undefined) || null;
+
+  const setLoan = (next: Record<string, unknown> | null) =>
+    onChange({ ...payload, loan: next });
+  const setRefi = (next: Record<string, unknown> | null) =>
+    onChange({ ...payload, refinance: next });
+
+  return (
+    <div className="space-y-3">
+      {loan ? (
+        <div className="border border-slate-200 dark:border-slate-700 rounded p-2 space-y-2">
+          <div className="text-xs uppercase tracking-wide text-slate-500">Loan</div>
+          <NumberField label="principal" value={asString(loan.principal)} onChange={(v) => setLoan({ ...loan, principal: v })} />
+          <NumberField label="rate_annual" value={asString(loan.rate_annual)} onChange={(v) => setLoan({ ...loan, rate_annual: v })} />
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField label="amortization_years" value={asString(loan.amortization_years)} onChange={(v) => setLoan({ ...loan, amortization_years: Number(v) })} />
+            <NumberField label="term_years" value={asString(loan.term_years)} onChange={(v) => setLoan({ ...loan, term_years: Number(v) })} />
+            <NumberField label="interest_only_years" value={asString(loan.interest_only_years)} onChange={(v) => setLoan({ ...loan, interest_only_years: Number(v) })} />
+          </div>
+          <button
+            onClick={() => setLoan(null)}
+            className="w-full text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950 dark:hover:bg-red-900"
+          >
+            Remove loan
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() =>
+            setLoan({
+              principal: "1000000",
+              rate_annual: "0.06",
+              amortization_years: 30,
+              term_years: 10,
+              interest_only_years: 0,
+            })
+          }
+          className="w-full text-xs px-2 py-1 rounded border border-dashed border-emerald-400 text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950"
+        >
+          + Add loan
+        </button>
+      )}
+
+      {refinance ? (
+        <div className="border border-slate-200 dark:border-slate-700 rounded p-2 space-y-2">
+          <div className="text-xs uppercase tracking-wide text-slate-500">Mid-hold refinance</div>
+          <TextField label="effective_date" placeholder="YYYY-MM-DD" value={asString(refinance.effective_date)} onChange={(v) => setRefi({ ...refinance, effective_date: v })} />
+          <NumberField label="prepayment_penalty_pct" value={asString(refinance.prepayment_penalty_pct)} onChange={(v) => setRefi({ ...refinance, prepayment_penalty_pct: v })} />
+          <div className="border-t border-slate-200 dark:border-slate-700 pt-2">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">new_loan</div>
+            <NewLoanFields
+              loan={(refinance.new_loan as Record<string, unknown>) || {}}
+              onChange={(nl) => setRefi({ ...refinance, new_loan: nl })}
+            />
+          </div>
+          <button
+            onClick={() => setRefi(null)}
+            className="w-full text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950 dark:hover:bg-red-900"
+          >
+            Remove refinance
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() =>
+            setRefi({
+              effective_date: "2030-01-01",
+              prepayment_penalty_pct: "0",
+              new_loan: {
+                principal: "1500000",
+                rate_annual: "0.055",
+                amortization_years: 30,
+                term_years: 10,
+                interest_only_years: 0,
+              },
+            })
+          }
+          className="w-full text-xs px-2 py-1 rounded border border-dashed border-emerald-400 text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950"
+        >
+          + Add refinance
+        </button>
+      )}
+    </div>
+  );
+}
+
+function NewLoanFields({
+  loan,
+  onChange,
+}: {
+  loan: Record<string, unknown>;
+  onChange: (next: Record<string, unknown>) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <NumberField label="principal" value={asString(loan.principal)} onChange={(v) => onChange({ ...loan, principal: v })} />
+      <NumberField label="rate_annual" value={asString(loan.rate_annual)} onChange={(v) => onChange({ ...loan, rate_annual: v })} />
+      <NumberField label="amortization_years" value={asString(loan.amortization_years)} onChange={(v) => onChange({ ...loan, amortization_years: Number(v) })} />
+      <NumberField label="term_years" value={asString(loan.term_years)} onChange={(v) => onChange({ ...loan, term_years: Number(v) })} />
+      <NumberField label="interest_only_years" value={asString(loan.interest_only_years)} onChange={(v) => onChange({ ...loan, interest_only_years: Number(v) })} />
+    </div>
   );
 }
 
@@ -328,11 +437,81 @@ function LeaseEditor({
         steps={(lease.base_rent_steps as Array<Record<string, unknown>>) || []}
         onChange={(next) => setField("base_rent_steps", next)}
       />
+      <MlaEditor
+        mla={(lease.market_leasing_assumption as Record<string, unknown> | undefined) || null}
+        onChange={(next) => setField("market_leasing_assumption", next)}
+      />
       <button
         onClick={onRemove}
         className="w-full text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950 dark:hover:bg-red-900"
       >
         Remove lease
+      </button>
+    </div>
+  );
+}
+
+function MlaEditor({
+  mla,
+  onChange,
+}: {
+  mla: Record<string, unknown> | null;
+  onChange: (next: Record<string, unknown> | null) => void;
+}) {
+  if (!mla) {
+    return (
+      <button
+        onClick={() =>
+          onChange({
+            market_rent_psf: "0",
+            market_rent_growth_pct: "0.03",
+            new_term_months: 120,
+            rent_escalation_pct: "0.03",
+            free_rent_months_new: 0,
+            ti_psf_new: "0",
+            lc_pct_new: "0",
+            renewal_probability: "0.7",
+            downtime_months_new: 0,
+            expense_structure: "NNN",
+          })
+        }
+        className="w-full text-xs px-2 py-1 rounded border border-dashed border-emerald-400 text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950"
+      >
+        + Add Market Leasing Assumption
+      </button>
+    );
+  }
+  const set = (key: string, value: unknown) => onChange({ ...mla, [key]: value });
+  return (
+    <div className="border border-emerald-200 dark:border-emerald-900 rounded p-2 space-y-2 bg-emerald-50/50 dark:bg-emerald-950/30">
+      <div className="text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300 font-semibold">
+        Market Leasing Assumption — applies on rollover
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <NumberField label="market_rent_psf" value={asString(mla.market_rent_psf)} onChange={(v) => set("market_rent_psf", v)} />
+        <NumberField label="market_rent_growth_pct" value={asString(mla.market_rent_growth_pct)} onChange={(v) => set("market_rent_growth_pct", v)} />
+        <NumberField label="new_term_months" value={asString(mla.new_term_months)} onChange={(v) => set("new_term_months", Number(v))} />
+        <NumberField label="rent_escalation_pct" value={asString(mla.rent_escalation_pct)} onChange={(v) => set("rent_escalation_pct", v)} />
+        <NumberField label="renewal_probability" value={asString(mla.renewal_probability)} onChange={(v) => set("renewal_probability", v)} />
+        <NumberField label="downtime_months_new" value={asString(mla.downtime_months_new)} onChange={(v) => set("downtime_months_new", Number(v))} />
+        <NumberField label="free_rent_months_new" value={asString(mla.free_rent_months_new)} onChange={(v) => set("free_rent_months_new", Number(v))} />
+        <NumberField label="free_rent_months_renewal" value={asString(mla.free_rent_months_renewal)} onChange={(v) => set("free_rent_months_renewal", Number(v))} />
+        <NumberField label="ti_psf_new" value={asString(mla.ti_psf_new)} onChange={(v) => set("ti_psf_new", v)} />
+        <NumberField label="ti_psf_renewal" value={asString(mla.ti_psf_renewal)} onChange={(v) => set("ti_psf_renewal", v)} />
+        <NumberField label="lc_pct_new" value={asString(mla.lc_pct_new)} onChange={(v) => set("lc_pct_new", v)} />
+        <NumberField label="lc_pct_renewal" value={asString(mla.lc_pct_renewal)} onChange={(v) => set("lc_pct_renewal", v)} />
+        <SelectField
+          label="expense_structure"
+          value={asString(mla.expense_structure) || "NNN"}
+          options={["NNN", "MG_BASE_YEAR", "MG_EXPENSE_STOP", "FSG"]}
+          onChange={(v) => set("expense_structure", v)}
+        />
+      </div>
+      <button
+        onClick={() => onChange(null)}
+        className="text-[10px] text-emerald-700 hover:text-emerald-900 underline"
+      >
+        remove MLA
       </button>
     </div>
   );

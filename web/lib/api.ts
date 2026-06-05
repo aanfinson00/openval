@@ -7,10 +7,21 @@ export type ReportRow = {
   values: Array<number | null>;
 };
 
+export type DealSummary = {
+  unlevered_irr: number | null;
+  levered_irr: number | null;
+  unlevered_equity_multiple: number | null;
+  levered_equity_multiple: number | null;
+  going_in_cap: number | null;
+  stabilized_cap: number | null;
+  stabilized_noi: number | null;
+};
+
 export type CashflowReport = {
   property_name: string;
   years: string[];
   rows: ReportRow[];
+  summary?: DealSummary;
 };
 
 export type ErrorResponse = {

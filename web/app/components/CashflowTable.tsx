@@ -1,6 +1,6 @@
 "use client";
 
-import type { CashflowReport } from "@/lib/api";
+import type { CashflowReport, DealSummary } from "@/lib/api";
 
 type Props = {
   report: CashflowReport | null;
@@ -39,6 +39,7 @@ export function CashflowTable({ report, loading, error }: Props) {
         Argus-style Cash Flow report · fiscal years anchored on the acquisition month.
         {loading && <span className="ml-2 italic">refreshing…</span>}
       </p>
+      {report.summary && <SummaryHeader summary={report.summary} />}
       <table className="w-full text-xs font-mono border-collapse">
         <thead>
           <tr className="border-b border-slate-300 dark:border-slate-700">
@@ -103,6 +104,40 @@ function isMajorTotal(label: string): boolean {
     "Cash Flow Before Debt Service",
     "Cash Flow Available for Distribution",
   ].includes(label);
+}
+
+function SummaryHeader({ summary }: { summary: DealSummary }) {
+  const tiles: Array<{ label: string; value: string }> = [
+    { label: "Unlev. IRR", value: pct(summary.unlevered_irr) },
+    { label: "Lev. IRR", value: pct(summary.levered_irr) },
+    { label: "Unlev. EM", value: x(summary.unlevered_equity_multiple) },
+    { label: "Lev. EM", value: x(summary.levered_equity_multiple) },
+    { label: "Going-in Cap", value: pct(summary.going_in_cap) },
+    { label: "Stabilized Cap", value: pct(summary.stabilized_cap) },
+  ];
+  return (
+    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">
+      {tiles.map((t) => (
+        <div
+          key={t.label}
+          className="border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 bg-slate-50 dark:bg-slate-900"
+        >
+          <div className="text-[10px] uppercase tracking-wide text-slate-500">{t.label}</div>
+          <div className="text-sm font-mono tabular-nums">{t.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function pct(n: number | null): string {
+  if (n === null || Number.isNaN(n)) return "—";
+  return `${(n * 100).toFixed(2)}%`;
+}
+
+function x(n: number | null): string {
+  if (n === null || Number.isNaN(n)) return "—";
+  return `${n.toFixed(2)}x`;
 }
 
 function Placeholder({ children }: { children: React.ReactNode }) {

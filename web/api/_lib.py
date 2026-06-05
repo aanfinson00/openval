@@ -96,4 +96,13 @@ def build_cashflow_report(property_payload: dict) -> dict:
         "property_name": prop.name,
         "years": years,
         "rows": rows,
+        "summary": {
+            "unlevered_irr": _jsonable_value(result.unlevered_irr),
+            "levered_irr": _jsonable_value(result.levered_irr),
+            "unlevered_equity_multiple": _jsonable_value(result.unlevered_equity_multiple),
+            "levered_equity_multiple": _jsonable_value(result.levered_equity_multiple),
+            "going_in_cap": _jsonable_value(result.going_in_cap),
+            "stabilized_cap": _jsonable_value(result.stabilized_cap),
+            "stabilized_noi": _jsonable_value(getattr(result, "stabilized_noi", None)),
+        },
     }
