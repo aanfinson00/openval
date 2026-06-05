@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { PropertyPayload } from "@/lib/seed";
+import { downloadWorkbook } from "@/lib/download";
 import { UploadZone } from "./UploadZone";
 
 const SECTIONS = [
@@ -21,11 +22,25 @@ type Props = {
 
 export function Sidebar({ payload, onChange }: Props) {
   const [active, setActive] = useState<string>(SECTIONS[0].key);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const activeSection = useMemo(
     () => SECTIONS.find((s) => s.key === active)!,
     [active]
   );
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      await downloadWorkbook(payload);
+    } catch (e) {
+      setDownloadError((e as Error).message);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <aside className="w-80 shrink-0 border-r border-slate-200 dark:border-slate-800 h-full overflow-y-auto">
@@ -55,9 +70,22 @@ export function Sidebar({ payload, onChange }: Props) {
           />
         ))}
       </div>
-      <div className="px-3 pb-3 text-xs text-slate-500">
-        Editing the seeded Unbound Gateway deal. Lease / OpEx / CapEx panels
-        coming in iter I — for now, swap inputs in via file upload (also iter I).
+      <div className="px-3 pb-3 border-t border-slate-200 dark:border-slate-800 pt-2 space-y-1">
+        <button
+          onClick={() => void handleDownload()}
+          disabled={downloading}
+          className="w-full text-xs bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded px-3 py-2 disabled:opacity-50"
+        >
+          {downloading ? "Building workbook…" : "Download workbook"}
+        </button>
+        {downloadError && (
+          <div className="text-xs text-red-600">{downloadError}</div>
+        )}
+        <p className="text-xs text-slate-500 mt-1">
+          The downloaded .xlsx round-trips: drop it back on the upload zone
+          (or run <code>scripts/run_workbook.py</code> against it) to see
+          baked outputs.
+        </p>
       </div>
     </aside>
   );

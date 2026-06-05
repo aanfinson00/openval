@@ -75,3 +75,65 @@ def test_round_trip_through_engine_runs():
 def test_missing_file_raises():
     with pytest.raises(FileNotFoundError):
         read_property_workbook("/nonexistent/path/to/workbook.xlsx")
+
+
+# ----------------------------------------------------------------------
+# write_property_workbook — round-trip companion
+# ----------------------------------------------------------------------
+
+
+from openval.io import write_property_workbook  # noqa: E402
+
+
+def test_write_round_trip_preserves_core_property_state(tmp_path):
+    orig = read_property_workbook(WORKBOOK_PATH)
+    out = tmp_path / "roundtrip.xlsx"
+    write_property_workbook(orig, out)
+    assert out.exists() and out.stat().st_size > 0
+
+    after = read_property_workbook(out)
+    assert after.name == orig.name
+    assert after.rentable_sf == orig.rentable_sf
+    assert after.acquisition_date == orig.acquisition_date
+    assert after.hold_years == orig.hold_years
+    assert after.acquisition_price == orig.acquisition_price
+    assert after.exit_cap_rate == orig.exit_cap_rate
+
+
+def test_write_round_trip_preserves_leases_and_schedules(tmp_path):
+    orig = read_property_workbook(WORKBOOK_PATH)
+    out = tmp_path / "roundtrip.xlsx"
+    write_property_workbook(orig, out)
+    after = read_property_workbook(out)
+    assert len(after.leases) == len(orig.leases)
+    for o, a in zip(orig.leases, after.leases):
+        assert o.suite_id == a.suite_id
+        assert o.area_sf == a.area_sf
+        assert o.start_date == a.start_date
+        assert o.end_date == a.end_date
+    assert after.opex_annual == orig.opex_annual
+
+
+def test_write_round_trip_preserves_loan(tmp_path):
+    orig = read_property_workbook(WORKBOOK_PATH)
+    out = tmp_path / "roundtrip.xlsx"
+    write_property_workbook(orig, out)
+    after = read_property_workbook(out)
+    assert (orig.loan is None) == (after.loan is None)
+    if orig.loan is not None:
+        assert after.loan.principal == orig.loan.principal
+        assert after.loan.rate_annual == orig.loan.rate_annual
+
+
+def test_write_round_trip_through_engine_produces_same_y1_noi(tmp_path):
+    """The strongest round-trip check: write, re-read, project, compare."""
+    from openval import project_property
+    orig = read_property_workbook(WORKBOOK_PATH)
+    out = tmp_path / "roundtrip.xlsx"
+    write_property_workbook(orig, out)
+    after = read_property_workbook(out)
+    noi_orig = project_property(orig).cashflows.groupby(
+        lambda d: d.year)["noi"].sum().iloc[0]
+    noi_after = project_property(after).cashflows.groupby(
+        lambda d: d.year)["noi"].sum().iloc[0]
+    assert abs(noi_orig - noi_after) < 1.0
