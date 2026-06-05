@@ -1,6 +1,7 @@
 from openval.cashflow import project_lease, project_rent_roll
 from openval.dcf import IrrConvention, Reversion, UnderwritingResult, project_property
 from openval.debt import Loan, Refinance, amortize_loan
+from openval.inputs import opex_with_pct_of_revenue_fee
 from openval.lease import (
     CpiEscalator,
     ExpenseStructure,
@@ -12,11 +13,17 @@ from openval.lease import (
 )
 from openval.property import Property
 from openval.recoveries import project_recoveries
-from openval.reporting import mark_to_market, rent_roll_summary
+from openval.reporting import (
+    ARGUS_TOP_LINE_ROWS,
+    argus_top_line_income,
+    mark_to_market,
+    rent_roll_summary,
+)
 from openval.sensitivity import sensitivity
 from openval.waterfall import PromoteTier, Waterfall, WaterfallResult, run_waterfall
 
 __all__ = [
+    "ARGUS_TOP_LINE_ROWS",
     "CpiEscalator",
     "ExpenseStructure",
     "IrrConvention",
@@ -34,7 +41,9 @@ __all__ = [
     "WaterfallResult",
     "UnderwritingResult",
     "amortize_loan",
+    "argus_top_line_income",
     "mark_to_market",
+    "opex_with_pct_of_revenue_fee",
     "project_lease",
     "project_property",
     "project_recoveries",

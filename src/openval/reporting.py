@@ -10,13 +10,16 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import pandas as pd
 
-from openval.cashflow import _active_psf  # type: ignore[attr-defined]
-from openval.lease import Lease
+from openval.cashflow import _active_psf, project_rent_roll  # type: ignore[attr-defined]
+from openval.lease import Lease, RentStep
 from openval.property import Property
+
+if TYPE_CHECKING:
+    from openval.dcf import UnderwritingResult
 
 
 def mark_to_market(prop: Property, as_of: Optional[date] = None) -> pd.DataFrame:
@@ -102,3 +105,207 @@ def rent_roll_summary(prop: Property) -> pd.DataFrame:
 def _decimal_years_between(start: date, target: date) -> Decimal:
     months = (target.year - start.year) * 12 + (target.month - start.month)
     return Decimal(months) / Decimal(12)
+
+
+# ----------------------------------------------------------------------
+# Argus-style top-line income report
+# ----------------------------------------------------------------------
+
+
+# Mirrors openval.io.argus_cashflow.TOP_LINE_INCOME_ROWS in order and
+# indent, with the same labels Argus uses. Section headers (no indent)
+# return NaN in the value columns to preserve the visual hierarchy.
+ARGUS_TOP_LINE_ROWS: tuple[str, ...] = (
+    "Rental Revenue",
+    "  Potential Base Rent",
+    "  Absorption & Turnover Vacancy",
+    "  Free Rent",
+    "  Scheduled Base Rent",
+    "Total Rental Revenue",
+    "Other Tenant Revenue",
+    "  Total Expense Recoveries",
+    "Total Other Tenant Revenue",
+    "Total Tenant Revenue",
+    "Potential Gross Revenue",
+    "Vacancy & Credit Loss",
+    "  Vacancy Allowance",
+    "  Credit Loss",
+    "Total Vacancy & Credit Loss",
+    "Effective Gross Revenue",
+)
+
+
+def argus_top_line_income(
+    result: "UnderwritingResult",
+    prop: Property,
+    frequency: str = "annual",
+) -> pd.DataFrame:
+    """Build the Argus "Cash Flow" top-line income block from an OpenVal run.
+
+    Rows match Argus's row labels exactly (indent included) — the block runs
+    from "Rental Revenue" down through "Effective Gross Revenue", 16 rows
+    including three section headers (which come back as NaN).
+
+    Columns: ``"Year 1" ... "Year N"`` fiscal years anchored on
+    ``prop.acquisition_date`` (so a deal that closes in October has fiscal
+    Y1 = Oct → next Sep), matching Argus's convention. ``frequency="monthly"``
+    keeps the engine's monthly grain instead.
+
+    Implementation notes:
+      * **Potential Base Rent** is computed by re-projecting the rent roll
+        with downtime / free rent zeroed and renewal probability pinned to
+        1.0 — i.e. "what rent would we collect if every month were paid at
+        the in-place schedule". This mirrors Argus's "PBR".
+      * **Absorption & Turnover Vacancy** = actual gross_rent − PBR. The
+        gap is negative whenever MLA downtime or pre-commencement vacancy
+        suppresses the at-schedule rent.
+      * **Free Rent** is read directly from ``free_rent_abatement``.
+      * **Scheduled Base Rent** = ``gross_rent + free_rent_abatement``,
+        which has been validated $-for-$ against Argus on a stabilized
+        deal (see ``validation/argus_unbound_compare.py``).
+    """
+    cf = result.cashflows
+    if cf.empty:
+        raise ValueError("UnderwritingResult.cashflows is empty")
+
+    months = cf.index
+    pbr_monthly = _potential_base_rent_monthly(prop, months)
+
+    monthly = pd.DataFrame(index=months)
+    monthly["Potential Base Rent"] = pbr_monthly
+    monthly["Absorption & Turnover Vacancy"] = cf["gross_rent"] - pbr_monthly
+    monthly["Free Rent"] = cf["free_rent_abatement"]
+    monthly["Scheduled Base Rent"] = cf["gross_rent"] + cf["free_rent_abatement"]
+    monthly["Total Rental Revenue"] = monthly["Scheduled Base Rent"]
+    recoveries = cf["recoveries"] if "recoveries" in cf.columns else pd.Series(0.0, index=months)
+    monthly["Total Expense Recoveries"] = recoveries
+    monthly["Total Other Tenant Revenue"] = recoveries
+    monthly["Total Tenant Revenue"] = monthly["Total Rental Revenue"] + recoveries
+    monthly["Potential Gross Revenue"] = monthly["Total Tenant Revenue"]
+    monthly["Vacancy Allowance"] = cf["general_vacancy"] if "general_vacancy" in cf.columns else 0.0
+    monthly["Credit Loss"] = cf["credit_loss"] if "credit_loss" in cf.columns else 0.0
+    monthly["Total Vacancy & Credit Loss"] = (
+        monthly["Vacancy Allowance"] + monthly["Credit Loss"]
+    )
+    monthly["Effective Gross Revenue"] = cf["egi"] if "egi" in cf.columns else (
+        monthly["Potential Gross Revenue"] + monthly["Total Vacancy & Credit Loss"]
+    )
+
+    # Reindex into the Argus row order, including section-header rows that
+    # carry no values (NaN) — those are visual headers in Argus.
+    body_to_argus = {
+        "Potential Base Rent": "  Potential Base Rent",
+        "Absorption & Turnover Vacancy": "  Absorption & Turnover Vacancy",
+        "Free Rent": "  Free Rent",
+        "Scheduled Base Rent": "  Scheduled Base Rent",
+        "Total Rental Revenue": "Total Rental Revenue",
+        "Total Expense Recoveries": "  Total Expense Recoveries",
+        "Total Other Tenant Revenue": "Total Other Tenant Revenue",
+        "Total Tenant Revenue": "Total Tenant Revenue",
+        "Potential Gross Revenue": "Potential Gross Revenue",
+        "Vacancy Allowance": "  Vacancy Allowance",
+        "Credit Loss": "  Credit Loss",
+        "Total Vacancy & Credit Loss": "Total Vacancy & Credit Loss",
+        "Effective Gross Revenue": "Effective Gross Revenue",
+    }
+    monthly = monthly.rename(columns=body_to_argus)
+    # Section headers as empty rows so the block matches Argus visually.
+    for header in ("Rental Revenue", "Other Tenant Revenue", "Vacancy & Credit Loss"):
+        monthly[header] = float("nan")
+    out_monthly = monthly[list(ARGUS_TOP_LINE_ROWS)].T
+    out_monthly.index.name = "line_item"
+
+    if frequency == "monthly":
+        return out_monthly
+
+    if frequency != "annual":
+        raise ValueError(f"frequency must be 'monthly' or 'annual', got {frequency!r}")
+
+    return _annualize_acquisition_anchored(out_monthly, prop.acquisition_date)
+
+
+def _potential_base_rent_monthly(prop: Property, months: pd.DatetimeIndex) -> pd.Series:
+    """Project the rent roll's "at-schedule" potential rent each month.
+
+    Mirrors Argus's "Potential Base Rent" line: the gross rent if every
+    month of the projection were collected at the lease's in-place schedule
+    (no pre-commencement vacancy, no MLA downtime, no free rent abatement,
+    deterministic renewal at scheduled escalations).
+
+    Mechanics: shift each non-vacant-placeholder lease's commencement
+    backwards to ``acquisition_date`` so the engine evaluates the lease's
+    rent step from day 1; zero out free-rent / downtime / probabilistic
+    rollover on its MLA copy; re-run ``project_rent_roll`` and take the
+    resulting ``base_rent`` series.
+    """
+    acq = prop.acquisition_date
+    perfect_leases: list[Lease] = []
+    for lease in prop.leases:
+        mla = lease.market_leasing_assumption
+        perfect_mla = None
+        if mla is not None:
+            # Zero ``renewal_market_discount_pct`` too. With
+            # renewal_probability=1.0 the MLA spawns a renewal segment after
+            # the parent lease ends; without this knob, that segment would
+            # carry the lease-up haircut and PBR would understate Argus's
+            # at-market convention. Argus's PBR always uses the full
+            # at-market new-tenant rate.
+            perfect_mla = mla.model_copy(
+                update={
+                    "downtime_months_new": 0,
+                    "free_rent_months_new": 0,
+                    "free_rent_months_renewal": 0,
+                    "renewal_probability": Decimal("1.0"),
+                    "renewal_market_discount_pct": Decimal("0"),
+                }
+            )
+
+        new_start = lease.start_date
+        new_steps = list(lease.base_rent_steps)
+        # Shift the lease's commencement back to acquisition so PBR captures
+        # the full projection window at the in-place rate. Skip the special
+        # placeholder lease used for "vacant at acquisition" (its $0 PSF is
+        # supposed to delegate to MLA spawn from day 1, which the perfect
+        # MLA above already handles).
+        if lease.start_date > acq and lease.tenant_name != "VACANT":
+            new_start = acq
+            new_steps = [s for s in new_steps if s.start_date > acq]
+            first_psf = lease.base_rent_steps[0].annual_psf
+            new_steps.insert(0, RentStep(start_date=acq, annual_psf=first_psf))
+
+        perfect_leases.append(
+            lease.model_copy(
+                update={
+                    "start_date": new_start,
+                    "base_rent_steps": new_steps,
+                    "free_rent_months": 0,
+                    "market_leasing_assumption": perfect_mla,
+                }
+            )
+        )
+
+    start = months[0].date()
+    end_month_start = months[-1].date()
+    rr = project_rent_roll(perfect_leases, start, end_month_start, cpi_series=prop.cpi_series)
+    return rr["base_rent"].reindex(months).fillna(0.0)
+
+
+def _annualize_acquisition_anchored(monthly: pd.DataFrame, acquisition: date) -> pd.DataFrame:
+    """Sum monthly columns into fiscal years anchored at ``acquisition``.
+
+    Trailing stub months (if the cashflow window isn't a clean 12-multiple)
+    fall into a final ``"Year N (stub Xmo)"`` bucket so no rent is dropped.
+    """
+    n_months = monthly.shape[1]
+    n_years = n_months // 12
+    out: dict[str, pd.Series] = {}
+    for y in range(n_years):
+        slc = monthly.iloc[:, y * 12 : (y + 1) * 12]
+        out[f"Year {y + 1}"] = slc.sum(axis=1, min_count=1)
+    remainder = n_months - n_years * 12
+    if remainder:
+        stub = monthly.iloc[:, n_years * 12 :]
+        out[f"Year {n_years + 1} (stub {remainder}mo)"] = stub.sum(axis=1, min_count=1)
+    df = pd.DataFrame(out, index=monthly.index)
+    df.index.name = "line_item"
+    return df

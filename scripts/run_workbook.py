@@ -5,16 +5,18 @@ Usage:
 
 Preserves all input sheets. Overwrites or appends:
 
-    rent_roll_in     property snapshot at acquisition
-    mark_to_market   per-lease in-place vs market rent
-    cashflows        monthly DCF detail
-    annual_summary   year-by-year NOI / BTCF rollup
-    reversion        terminal NOI, gross/net sale, loan payoff
-    irr_summary      UNL + LEV IRR under all three conventions; EM
-    yield_matrix     year-by-year going-in / current yield on cost
+    rent_roll_in        property snapshot at acquisition
+    mark_to_market      per-lease in-place vs market rent
+    cashflows           monthly DCF detail
+    annual_summary      year-by-year NOI / BTCF rollup
+    top_line_income     Argus-style top-line income block (PBR -> EGR),
+                        fiscal-year columns anchored on acquisition_date
+    reversion           terminal NOI, gross/net sale, loan payoff
+    irr_summary         UNL + LEV IRR under all three conventions; EM
+    yield_matrix        year-by-year going-in / current yield on cost
     waterfall_schedule  monthly LP/GP distribution detail
     waterfall_summary   LP/GP contributed, EM, IRR
-    sensitivity      5x5 grid: exit cap rate × acquisition price (mid-year IRR)
+    sensitivity         5x5 grid: exit cap rate × acquisition price (mid-year IRR)
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ from openval import (
     Property,
     Refinance,
     Waterfall,
+    argus_top_line_income,
     mark_to_market,
     project_property,
     rent_roll_summary,
@@ -373,6 +376,10 @@ def main() -> None:
         "mark_to_market": (mark_to_market(prop), False),
         "cashflows": (cf_for_excel, True),
         "annual_summary": (_annual_summary(result.cashflows), True),
+        # Argus-style top-line income block: 16 rows, fiscal-year columns
+        # anchored to acquisition. Mirrors the layout you'd see at the top
+        # of an Argus Enterprise "Cash Flow" report.
+        "top_line_income": (argus_top_line_income(result, prop).round(0), True),
         "reversion": (_reversion_detail(result), False),
         "irr_summary": (_irr_summary(result), False),
         "yield_matrix": (_yield_matrix(prop, result.cashflows), False),
