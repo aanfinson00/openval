@@ -349,6 +349,79 @@ def test_cash_flow_available_for_distribution_is_cfb_minus_debt_service_with_loa
     assert (cfb > cfad).all()
 
 
+def test_opex_categories_populate_argus_sub_rows():
+    """When ``Property.opex_categories`` is set, the 4 Argus opex sub-rows
+    pick up the values; the totals still match Total Operating Expenses."""
+    categories = {
+        "Real Estate Taxes":         {2026: Decimal("300000"), 2027: Decimal("309000"),
+                                      2028: Decimal("318270"), 2029: Decimal("327818"),
+                                      2030: Decimal("337653")},
+        "Insurance":                 {y: Decimal("50000") for y in range(2026, 2031)},
+        "Property Management Fee":   {y: Decimal("75000") for y in range(2026, 2031)},
+        "CAM":                       {y: Decimal("75000") for y in range(2026, 2031)},
+    }
+    prop_template = _prop([_lease()])
+    prop = prop_template.model_copy(
+        update={"opex_categories": categories, "opex_annual": {}}
+    )
+    # Re-construct so the derive-from-categories validator runs.
+    prop = Property(**prop.model_dump())
+    result = project_property(prop)
+    report = argus_cashflow_report(result, prop)
+    for argus_label, cat_name in (
+        ("  Real Estate Taxes", "Real Estate Taxes"),
+        ("  Insurance", "Insurance"),
+        ("  Property Management Fee", "Property Management Fee"),
+        ("  CAM", "CAM"),
+    ):
+        assert not report.loc[argus_label].isna().any(), f"{argus_label} should be populated"
+        assert report.loc[argus_label, "Year 1"] == pytest.approx(
+            float(categories[cat_name][2026]), abs=1.0
+        )
+    derived = sum(report.loc[r] for r in (
+        "  Real Estate Taxes", "  Insurance", "  Property Management Fee", "  CAM"
+    ))
+    pd.testing.assert_series_equal(
+        report.loc["Total Operating Expenses"].rename(None),
+        derived.rename(None),
+        atol=1.0,
+    )
+
+
+def test_opex_categories_derives_opex_annual_when_not_provided():
+    categories = {
+        "Real Estate Taxes": {2026: Decimal("100000")},
+        "Insurance":         {2026: Decimal("25000")},
+    }
+    prop_template = _prop([_lease()])
+    # Build via model_dump roundtrip so the before-validator fires.
+    data = prop_template.model_dump()
+    data["opex_categories"] = categories
+    data["opex_annual"] = {}  # let the validator populate
+    prop = Property(**data)
+    assert prop.opex_annual[2026] == Decimal("125000")
+
+
+def test_opex_categories_consistency_check_raises_on_mismatch():
+    categories = {"Real Estate Taxes": {2026: Decimal("100000")}}
+    prop_template = _prop([_lease()])
+    data = prop_template.model_dump()
+    data["opex_categories"] = categories
+    data["opex_annual"] = {2026: Decimal("999999")}  # disagrees with categories
+    with pytest.raises(Exception, match="disagrees with sum"):
+        Property(**data)
+
+
+def test_opex_categories_absent_keeps_existing_behavior():
+    """Without categories, the 4 Argus opex sub-rows stay NaN."""
+    prop = _prop([_lease()])
+    result = project_property(prop)
+    report = argus_cashflow_report(result, prop)
+    for sub in ("  Real Estate Taxes", "  Insurance",
+                "  Property Management Fee", "  CAM"):
+        assert report.loc[sub].isna().all()
+
+
 def test_full_report_section_headers_and_unsupported_subrows_are_nan():
     prop = _prop([_lease()])
     result = project_property(prop)

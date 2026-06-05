@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -20,6 +20,14 @@ class Property(BaseModel):
     rentable_sf: int = Field(gt=0)
     leases: list[Lease] = Field(default_factory=list)
     opex_annual: dict[int, Decimal]
+    # Optional per-category opex breakdown. When set, ``opex_annual`` is
+    # derived as the per-year sum of all categories (or validated against the
+    # provided value). Categories named after Argus's standard rows
+    # ("Real Estate Taxes", "Insurance", "Property Management Fee", "CAM")
+    # surface as sub-rows in ``argus_cashflow_report``; non-standard names
+    # still feed into the opex total but don't have a dedicated row in the
+    # Argus layout.
+    opex_categories: Optional[dict[str, dict[int, Decimal]]] = Field(default=None)
     capex_annual: dict[int, Decimal] = Field(default_factory=dict)
 
     acquisition_date: date
@@ -68,6 +76,46 @@ class Property(BaseModel):
     # new one with different terms (rate, principal, amort, IO). Common in
     # value-add deals where a stabilized refi pulls equity out at year 3-5.
     refinance: Optional[Refinance] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_opex_annual_from_categories(cls, data: Any) -> Any:
+        """If ``opex_categories`` is supplied, derive (or validate)
+        ``opex_annual`` from the per-year sum across categories.
+
+        - Categories alone → ``opex_annual`` is auto-populated.
+        - Both supplied → validate they agree per year (within 1 cent).
+        - Categories absent → no change (existing single-line behavior).
+        """
+        if not isinstance(data, dict):
+            return data
+        categories = data.get("opex_categories")
+        if not categories:
+            return data
+        derived: dict[int, Decimal] = {}
+        for cat_schedule in categories.values():
+            if not isinstance(cat_schedule, dict):
+                continue
+            for year, amount in cat_schedule.items():
+                if not isinstance(amount, Decimal):
+                    amount = Decimal(str(amount))
+                derived[int(year)] = derived.get(int(year), Decimal("0")) + amount
+        provided = data.get("opex_annual")
+        if not provided:
+            data["opex_annual"] = derived
+            return data
+        # Both supplied — every year present on either side must agree.
+        all_years = set(derived) | {int(y) for y in provided}
+        for y in all_years:
+            d_v = derived.get(y, Decimal("0"))
+            p_raw = provided.get(y, Decimal("0"))
+            p_v = p_raw if isinstance(p_raw, Decimal) else Decimal(str(p_raw))
+            if abs(d_v - p_v) > Decimal("0.01"):
+                raise ValueError(
+                    f"opex_annual[{y}]={p_v} disagrees with sum of "
+                    f"opex_categories[*][{y}]={d_v}"
+                )
+        return data
 
     @model_validator(mode="after")
     def _structural_checks(self) -> "Property":

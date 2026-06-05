@@ -327,9 +327,21 @@ def argus_cashflow_report(
 
     for header in ("Operating Expenses", "Leasing Costs", "Capital Expenditures"):
         lower[header] = float("nan")
-    # Opex sub-categories — populated by Phase B (Property.opex_categories).
-    for sub in ("  Real Estate Taxes", "  Insurance", "  Property Management Fee", "  CAM"):
-        lower[sub] = float("nan")
+    # Opex sub-categories: populate from ``Property.opex_categories`` when
+    # supplied. Argus's four standard category labels are recognized; any
+    # custom category names still sum into Total Operating Expenses but
+    # don't get a dedicated Argus row.
+    cats = prop.opex_categories or {}
+    for argus_label, cat_name in (
+        ("  Real Estate Taxes", "Real Estate Taxes"),
+        ("  Insurance", "Insurance"),
+        ("  Property Management Fee", "Property Management Fee"),
+        ("  CAM", "CAM"),
+    ):
+        if cat_name in cats:
+            lower[argus_label] = _opex_category_monthly(cats[cat_name], months).values
+        else:
+            lower[argus_label] = float("nan")
     lower["Total Operating Expenses"] = opex_pos.values
     lower["Net Operating Income"] = cf["noi"].values if "noi" in cf.columns else 0.0
     lower["  Tenant Improvements"] = ti_pos.values
@@ -357,6 +369,20 @@ def argus_cashflow_report(
         raise ValueError(f"frequency must be 'monthly' or 'annual', got {frequency!r}")
 
     return _annualize_acquisition_anchored(full_monthly, prop.acquisition_date)
+
+
+def _opex_category_monthly(
+    cat_schedule: dict[int, Decimal], months: pd.DatetimeIndex
+) -> pd.Series:
+    """Spread an annual opex category schedule evenly across the months.
+
+    Matches how ``_annual_to_monthly`` in ``openval.dcf`` distributes
+    ``opex_annual`` — divide each year's amount by 12 across that year's
+    months — so category sub-rows always sum to the ``Total Operating
+    Expenses`` line within rounding.
+    """
+    vals = [float(cat_schedule.get(ts.year, 0)) / 12.0 for ts in months]
+    return pd.Series(vals, index=months)
 
 
 def _potential_base_rent_monthly(prop: Property, months: pd.DatetimeIndex) -> pd.Series:
