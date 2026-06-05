@@ -10,6 +10,7 @@ from openval.io.argus_cashflow import (
 )
 from openval.io.avux import AvuxMetadata, AvuxEncryptedError, read_avux_metadata
 from openval.io.rent_roll import read_rent_roll_excel
+from openval.io.workbook import read_property_workbook
 
 __all__ = [
     "ArgusCashflow",
@@ -18,5 +19,6 @@ __all__ = [
     "TOP_LINE_INCOME_ROWS",
     "read_argus_cashflow_xls",
     "read_avux_metadata",
+    "read_property_workbook",
     "read_rent_roll_excel",
 ]

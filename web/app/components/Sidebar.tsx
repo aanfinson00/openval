@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { PropertyPayload } from "@/lib/seed";
+import { UploadZone } from "./UploadZone";
 
 const SECTIONS = [
   { key: "property", label: "Property", fields: ["name", "rentable_sf"] },
@@ -28,6 +29,7 @@ export function Sidebar({ payload, onChange }: Props) {
 
   return (
     <aside className="w-80 shrink-0 border-r border-slate-200 dark:border-slate-800 h-full overflow-y-auto">
+      <UploadZone onLoaded={onChange} />
       <div className="flex flex-wrap gap-1 p-2 border-b border-slate-200 dark:border-slate-800">
         {SECTIONS.map((s) => (
           <button

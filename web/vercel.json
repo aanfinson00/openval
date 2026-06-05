@@ -4,9 +4,14 @@
     "api/cashflow.py": {
       "runtime": "@vercel/python@4.3.1",
       "includeFiles": "../src/openval/**"
+    },
+    "api/parse_workbook.py": {
+      "runtime": "@vercel/python@4.3.1",
+      "includeFiles": "../src/openval/**"
     }
   },
   "rewrites": [
-    { "source": "/api/cashflow", "destination": "/api/cashflow.py" }
+    { "source": "/api/cashflow", "destination": "/api/cashflow.py" },
+    { "source": "/api/parse_workbook", "destination": "/api/parse_workbook.py" }
   ]
 }
