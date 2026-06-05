@@ -29,6 +29,12 @@ class Property(BaseModel):
     # Argus layout.
     opex_categories: Optional[dict[str, dict[int, Decimal]]] = Field(default=None)
     capex_annual: dict[int, Decimal] = Field(default_factory=dict)
+    # Optional per-category capex breakdown. Mirrors opex_categories. When
+    # set, ``capex_annual`` is derived as the per-year sum (or validated).
+    # Categories named "Capital Reserves" and "Non-Leasing Capital Expense"
+    # surface as sub-rows in ``argus_cashflow_report``; other names still
+    # feed the total but don't get a dedicated Argus row.
+    capex_categories: Optional[dict[str, dict[int, Decimal]]] = Field(default=None)
 
     acquisition_date: date
     acquisition_price: Decimal = Field(gt=0)
@@ -79,42 +85,46 @@ class Property(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _derive_opex_annual_from_categories(cls, data: Any) -> Any:
-        """If ``opex_categories`` is supplied, derive (or validate)
-        ``opex_annual`` from the per-year sum across categories.
+    def _derive_totals_from_categories(cls, data: Any) -> Any:
+        """If ``opex_categories`` / ``capex_categories`` are supplied, derive
+        (or validate) the corresponding ``opex_annual`` / ``capex_annual``
+        totals from the per-year sum across categories.
 
-        - Categories alone → ``opex_annual`` is auto-populated.
+        - Categories alone → the matching total is auto-populated.
         - Both supplied → validate they agree per year (within 1 cent).
         - Categories absent → no change (existing single-line behavior).
         """
         if not isinstance(data, dict):
             return data
-        categories = data.get("opex_categories")
-        if not categories:
-            return data
-        derived: dict[int, Decimal] = {}
-        for cat_schedule in categories.values():
-            if not isinstance(cat_schedule, dict):
+        for cat_key, total_key in (
+            ("opex_categories", "opex_annual"),
+            ("capex_categories", "capex_annual"),
+        ):
+            categories = data.get(cat_key)
+            if not categories:
                 continue
-            for year, amount in cat_schedule.items():
-                if not isinstance(amount, Decimal):
-                    amount = Decimal(str(amount))
-                derived[int(year)] = derived.get(int(year), Decimal("0")) + amount
-        provided = data.get("opex_annual")
-        if not provided:
-            data["opex_annual"] = derived
-            return data
-        # Both supplied — every year present on either side must agree.
-        all_years = set(derived) | {int(y) for y in provided}
-        for y in all_years:
-            d_v = derived.get(y, Decimal("0"))
-            p_raw = provided.get(y, Decimal("0"))
-            p_v = p_raw if isinstance(p_raw, Decimal) else Decimal(str(p_raw))
-            if abs(d_v - p_v) > Decimal("0.01"):
-                raise ValueError(
-                    f"opex_annual[{y}]={p_v} disagrees with sum of "
-                    f"opex_categories[*][{y}]={d_v}"
-                )
+            derived: dict[int, Decimal] = {}
+            for cat_schedule in categories.values():
+                if not isinstance(cat_schedule, dict):
+                    continue
+                for year, amount in cat_schedule.items():
+                    if not isinstance(amount, Decimal):
+                        amount = Decimal(str(amount))
+                    derived[int(year)] = derived.get(int(year), Decimal("0")) + amount
+            provided = data.get(total_key)
+            if not provided:
+                data[total_key] = derived
+                continue
+            all_years = set(derived) | {int(y) for y in provided}
+            for y in all_years:
+                d_v = derived.get(y, Decimal("0"))
+                p_raw = provided.get(y, Decimal("0"))
+                p_v = p_raw if isinstance(p_raw, Decimal) else Decimal(str(p_raw))
+                if abs(d_v - p_v) > Decimal("0.01"):
+                    raise ValueError(
+                        f"{total_key}[{y}]={p_v} disagrees with sum of "
+                        f"{cat_key}[*][{y}]={d_v}"
+                    )
         return data
 
     @model_validator(mode="after")

@@ -422,6 +422,63 @@ def test_opex_categories_absent_keeps_existing_behavior():
         assert report.loc[sub].isna().all()
 
 
+def test_capex_categories_populate_argus_sub_rows():
+    capex_cats = {
+        "Capital Reserves": {y: Decimal("25000") for y in range(2026, 2031)},
+        "Non-Leasing Capital Expense": {2026: Decimal("500000")},
+    }
+    prop_template = _prop([_lease()])
+    data = prop_template.model_dump()
+    data["capex_categories"] = capex_cats
+    data["capex_annual"] = {}  # let validator populate
+    prop = Property(**data)
+    result = project_property(prop)
+    report = argus_cashflow_report(result, prop)
+    assert report.loc["  Capital Reserves", "Year 1"] == pytest.approx(25_000, abs=1.0)
+    assert report.loc["  Non-Leasing Capital Expense", "Year 1"] == pytest.approx(500_000, abs=1.0)
+    # Reserves continue Y2..Y5, NLCapex drops to 0 after Y1
+    assert report.loc["  Capital Reserves", "Year 5"] == pytest.approx(25_000, abs=1.0)
+    assert report.loc["  Non-Leasing Capital Expense", "Year 5"] == pytest.approx(0, abs=1.0)
+
+
+def test_capex_categories_derives_capex_annual_when_not_provided():
+    capex_cats = {
+        "Capital Reserves":            {2026: Decimal("10000")},
+        "Non-Leasing Capital Expense": {2026: Decimal("90000")},
+    }
+    prop_template = _prop([_lease()])
+    data = prop_template.model_dump()
+    data["capex_categories"] = capex_cats
+    data["capex_annual"] = {}
+    prop = Property(**data)
+    assert prop.capex_annual[2026] == Decimal("100000")
+
+
+def test_capex_categories_consistency_check_raises_on_mismatch():
+    capex_cats = {"Capital Reserves": {2026: Decimal("10000")}}
+    prop_template = _prop([_lease()])
+    data = prop_template.model_dump()
+    data["capex_categories"] = capex_cats
+    data["capex_annual"] = {2026: Decimal("999999")}
+    with pytest.raises(Exception, match="disagrees with sum"):
+        Property(**data)
+
+
+def test_capex_categories_absent_defaults_to_non_leasing_lump():
+    """Without capex_categories, full capex falls into 'Non-Leasing Capital
+    Expense' (so single-bucket users still see their capex displayed)."""
+    prop_template = _prop([_lease()])
+    prop = prop_template.model_copy(
+        update={"capex_annual": {2027: Decimal("150000")}}
+    )
+    result = project_property(prop)
+    report = argus_cashflow_report(result, prop)
+    assert report.loc["  Non-Leasing Capital Expense", "Year 2"] == pytest.approx(
+        150_000, abs=1.0
+    )
+    assert report.loc["  Capital Reserves"].isna().all()
+
+
 def test_full_report_section_headers_and_unsupported_subrows_are_nan():
     prop = _prop([_lease()])
     result = project_property(prop)

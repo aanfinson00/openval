@@ -347,9 +347,30 @@ def argus_cashflow_report(
     lower["  Tenant Improvements"] = ti_pos.values
     lower["  Leasing Commissions"] = lc_pos.values
     lower["  Total Leasing Costs"] = (ti_pos + lc_pos).values
-    # Capex sub-categories — Phase B will split via Property.capex_categories.
-    lower["  Capital Reserves"] = float("nan")
-    lower["  Non-Leasing Capital Expense"] = capex_pos.values
+    # Capex sub-categories: populate from ``Property.capex_categories``.
+    # The two Argus standard labels are recognized; custom names still feed
+    # the total but don't get a dedicated row. When categories are absent,
+    # the full capex falls into "Non-Leasing Capital Expense" by default.
+    capex_cats = prop.capex_categories or {}
+    if "Capital Reserves" in capex_cats:
+        lower["  Capital Reserves"] = _opex_category_monthly(
+            capex_cats["Capital Reserves"], months
+        ).values
+    else:
+        lower["  Capital Reserves"] = float("nan")
+    if "Non-Leasing Capital Expense" in capex_cats:
+        lower["  Non-Leasing Capital Expense"] = _opex_category_monthly(
+            capex_cats["Non-Leasing Capital Expense"], months
+        ).values
+    elif capex_cats:
+        # Categories supplied but no explicit "Non-Leasing Capital Expense" —
+        # leave that sub-row blank (custom-named categories live in the total
+        # only).
+        lower["  Non-Leasing Capital Expense"] = float("nan")
+    else:
+        # No categories at all → default behavior: lump full capex under
+        # Non-Leasing Capital Expense so single-bucket users still see it.
+        lower["  Non-Leasing Capital Expense"] = capex_pos.values
     lower["Total Capital Expenditures"] = capex_pos.values
     lower["Total Leasing & Capital Costs"] = (ti_pos + lc_pos + capex_pos).values
     lower["Cash Flow Before Debt Service"] = cfb_ds.values
