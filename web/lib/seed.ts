@@ -95,7 +95,10 @@ export function unboundSeed(): PropertyPayload {
       Object.entries(CAPEX_CATS).map(([cat, vals]) => [cat, indexedAnnualSchedule(vals, true)])
     ),
     acquisition_date: "2026-01-01",
-    acquisition_price: "1",
+    // Notional $1 was the validation-pinning convention; the demo seed
+    // uses a realistic price so the summary IRR/EM tiles render sensible
+    // values on first paint. $89M ≈ Y1 NOI cap'd at 5%.
+    acquisition_price: "89000000",
     hold_years: 11,
     exit_cap_rate: "0.05",
     general_vacancy_pct: "0",
