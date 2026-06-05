@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/cashflow.py": {
+      "runtime": "@vercel/python@4.3.1",
+      "includeFiles": "../src/openval/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/cashflow", "destination": "/api/cashflow.py" }
+  ]
+}

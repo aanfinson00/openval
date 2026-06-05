@@ -108,17 +108,22 @@ class Property(BaseModel):
                 if not isinstance(cat_schedule, dict):
                     continue
                 for year, amount in cat_schedule.items():
+                    # JSON dict keys are always strings; coerce.
+                    y_int = int(year)
                     if not isinstance(amount, Decimal):
                         amount = Decimal(str(amount))
-                    derived[int(year)] = derived.get(int(year), Decimal("0")) + amount
+                    derived[y_int] = derived.get(y_int, Decimal("0")) + amount
             provided = data.get(total_key)
             if not provided:
                 data[total_key] = derived
                 continue
-            all_years = set(derived) | {int(y) for y in provided}
+            # JSON roundtrips turn int dict keys into strings; normalize so
+            # both sides compare on the same key type.
+            provided_norm = {int(y): v for y, v in provided.items()}
+            all_years = set(derived) | set(provided_norm)
             for y in all_years:
                 d_v = derived.get(y, Decimal("0"))
-                p_raw = provided.get(y, Decimal("0"))
+                p_raw = provided_norm.get(y, Decimal("0"))
                 p_v = p_raw if isinstance(p_raw, Decimal) else Decimal(str(p_raw))
                 if abs(d_v - p_v) > Decimal("0.01"):
                     raise ValueError(
