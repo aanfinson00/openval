@@ -9,8 +9,9 @@ Preserves all input sheets. Overwrites or appends:
     mark_to_market      per-lease in-place vs market rent
     cashflows           monthly DCF detail
     annual_summary      year-by-year NOI / BTCF rollup
-    top_line_income     Argus-style top-line income block (PBR -> EGR),
-                        fiscal-year columns anchored on acquisition_date
+    cashflow_report     Full Argus "Cash Flow" block (PBR -> Cash Flow
+                        Available for Distribution), fiscal-year columns
+                        anchored on acquisition_date
     reversion           terminal NOI, gross/net sale, loan payoff
     irr_summary         UNL + LEV IRR under all three conventions; EM
     yield_matrix        year-by-year going-in / current yield on cost
@@ -39,7 +40,7 @@ from openval import (
     Property,
     Refinance,
     Waterfall,
-    argus_top_line_income,
+    argus_cashflow_report,
     mark_to_market,
     project_property,
     rent_roll_summary,
@@ -376,10 +377,12 @@ def main() -> None:
         "mark_to_market": (mark_to_market(prop), False),
         "cashflows": (cf_for_excel, True),
         "annual_summary": (_annual_summary(result.cashflows), True),
-        # Argus-style top-line income block: 16 rows, fiscal-year columns
-        # anchored to acquisition. Mirrors the layout you'd see at the top
-        # of an Argus Enterprise "Cash Flow" report.
-        "top_line_income": (argus_top_line_income(result, prop).round(0), True),
+        # Full Argus "Cash Flow" report — 34 rows (income through cash flow
+        # available for distribution). Fiscal-year columns anchored on
+        # acquisition. Sub-rows for opex/capex categories show as blank
+        # pending the Phase B schema lift (Property.opex_categories,
+        # Property.capex_categories).
+        "cashflow_report": (argus_cashflow_report(result, prop).round(0), True),
         "reversion": (_reversion_detail(result), False),
         "irr_summary": (_irr_summary(result), False),
         "yield_matrix": (_yield_matrix(prop, result.cashflows), False),

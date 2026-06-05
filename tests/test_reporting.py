@@ -9,12 +9,15 @@ import pandas as pd
 import pytest
 
 from openval import (
+    ARGUS_CASHFLOW_ROWS,
     ARGUS_TOP_LINE_ROWS,
     ExpenseStructure,
     Lease,
+    Loan,
     MarketLeasingAssumption,
     Property,
     RentStep,
+    argus_cashflow_report,
     argus_top_line_income,
     mark_to_market,
     project_property,
@@ -223,6 +226,161 @@ def test_invalid_frequency_raises():
     result = project_property(prop)
     with pytest.raises(ValueError):
         argus_top_line_income(result, prop, frequency="quarterly")
+
+
+# ----------------------------------------------------------------------
+# argus_cashflow_report — full block (top-line + opex + leasing + capex + NCF)
+# ----------------------------------------------------------------------
+
+
+def test_full_report_returns_34_rows():
+    prop = _prop([_lease()])
+    result = project_property(prop)
+    report = argus_cashflow_report(result, prop)
+    assert tuple(report.index) == ARGUS_CASHFLOW_ROWS
+    assert report.shape[0] == 34
+
+
+def test_full_report_top_16_rows_match_top_line_income():
+    """The full report's first 16 rows are the top-line income block,
+    unchanged from ``argus_top_line_income``. Lets us evolve the lower
+    block without disturbing the income contract."""
+    prop = _prop([_lease()])
+    result = project_property(prop)
+    top = argus_top_line_income(result, prop)
+    full = argus_cashflow_report(result, prop)
+    pd.testing.assert_frame_equal(full.loc[list(top.index)], top, atol=1.0)
+
+
+def test_opex_shows_positive_in_argus_convention():
+    """Engine stores opex as negative; the report flips it to positive
+    so the layout matches Argus (costs presented positive in cost section)."""
+    prop_template = _prop([_lease()])
+    # Override the single-year opex from _prop with a full 5-yr schedule
+    # so every year of the report has opex to flip.
+    prop = prop_template.model_copy(
+        update={"opex_annual": {y: Decimal("500000") for y in range(2026, 2031)}}
+    )
+    result = project_property(prop)
+    report = argus_cashflow_report(result, prop)
+    assert (report.loc["Total Operating Expenses"] > 0).all()
+
+
+def test_noi_equals_egr_minus_total_opex():
+    prop = _prop([_lease()])
+    result = project_property(prop)
+    report = argus_cashflow_report(result, prop)
+    derived = (
+        report.loc["Effective Gross Revenue"]
+        - report.loc["Total Operating Expenses"]
+    )
+    pd.testing.assert_series_equal(
+        report.loc["Net Operating Income"].rename(None),
+        derived.rename(None),
+        atol=1.0,
+    )
+
+
+def test_cash_flow_before_debt_service_equals_noi_minus_leasing_and_capital():
+    prop = _prop([_lease()])
+    result = project_property(prop)
+    report = argus_cashflow_report(result, prop)
+    derived = (
+        report.loc["Net Operating Income"]
+        - report.loc["Total Leasing & Capital Costs"]
+    )
+    pd.testing.assert_series_equal(
+        report.loc["Cash Flow Before Debt Service"].rename(None),
+        derived.rename(None),
+        atol=1.0,
+    )
+
+
+def test_total_leasing_costs_equals_ti_plus_lc():
+    # Lease with TI / LC so the rows are nonzero.
+    lease = Lease(
+        suite_id="A",
+        tenant_name="T",
+        area_sf=50_000,
+        start_date=date(2026, 1, 1),
+        end_date=date(2031, 1, 1),
+        base_rent_steps=[RentStep(start_date=date(2026, 1, 1), annual_psf=Decimal("32"))],
+        ti_psf=Decimal("15"),
+        lc_pct_first_year_rent=Decimal("0.05"),
+        expense_structure=ExpenseStructure.NNN,
+    )
+    prop = _prop([lease])
+    result = project_property(prop)
+    report = argus_cashflow_report(result, prop)
+    derived = report.loc["  Tenant Improvements"] + report.loc["  Leasing Commissions"]
+    pd.testing.assert_series_equal(
+        report.loc["  Total Leasing Costs"].rename(None),
+        derived.rename(None),
+        atol=1.0,
+    )
+
+
+def test_cash_flow_available_for_distribution_matches_cfb_when_no_loan():
+    """Without debt, CFAD == Cash Flow Before Debt Service."""
+    prop = _prop([_lease()])
+    result = project_property(prop)
+    report = argus_cashflow_report(result, prop)
+    pd.testing.assert_series_equal(
+        report.loc["Cash Flow Available for Distribution"].rename(None),
+        report.loc["Cash Flow Before Debt Service"].rename(None),
+        atol=1.0,
+    )
+
+
+def test_cash_flow_available_for_distribution_is_cfb_minus_debt_service_with_loan():
+    loan = Loan(
+        principal=Decimal("5_000_000"),
+        rate_annual=Decimal("0.05"),
+        amortization_years=30,
+        term_years=10,
+    )
+    prop_template = _prop([_lease()])
+    prop = prop_template.model_copy(update={"loan": loan})
+    result = project_property(prop)
+    report = argus_cashflow_report(result, prop)
+    # With a loan, CFAD strictly less than CFB by the debt service amount.
+    cfb = report.loc["Cash Flow Before Debt Service"]
+    cfad = report.loc["Cash Flow Available for Distribution"]
+    assert (cfb > cfad).all()
+
+
+def test_full_report_section_headers_and_unsupported_subrows_are_nan():
+    prop = _prop([_lease()])
+    result = project_property(prop)
+    report = argus_cashflow_report(result, prop)
+    nan_rows = (
+        # section headers
+        "Rental Revenue", "Other Tenant Revenue", "Vacancy & Credit Loss",
+        "Operating Expenses", "Leasing Costs", "Capital Expenditures",
+        # opex sub-categories (Phase B)
+        "  Real Estate Taxes", "  Insurance", "  Property Management Fee", "  CAM",
+        # capex sub-category (Phase B)
+        "  Capital Reserves",
+    )
+    for r in nan_rows:
+        assert report.loc[r].isna().all(), f"{r} should be NaN"
+
+
+def test_full_report_monthly_frequency_returns_correct_shape():
+    prop = _prop([_lease()])
+    result = project_property(prop)
+    monthly = argus_cashflow_report(result, prop, frequency="monthly")
+    assert monthly.shape == (34, 60)  # 5-yr hold = 60 months
+
+
+def test_full_report_invalid_frequency_raises():
+    prop = _prop([_lease()])
+    result = project_property(prop)
+    with pytest.raises(ValueError):
+        argus_cashflow_report(result, prop, frequency="quarterly")
+
+
+# ----------------------------------------------------------------------
 
 
 def test_pbr_uses_full_market_rate_ignoring_renewal_discount():

@@ -135,6 +135,38 @@ ARGUS_TOP_LINE_ROWS: tuple[str, ...] = (
 )
 
 
+# Lower block of the Argus cashflow report — opex through cash flow available
+# for distribution. Sub-rows for opex categories (Real Estate Taxes, Insurance,
+# Property Management Fee, CAM) and capex categories (Capital Reserves vs
+# Non-Leasing Capital Expense) need a schema lift on Property — they come back
+# as NaN until ``Property.opex_categories`` and ``Property.capex_categories``
+# are added (Phase B). "Non-Leasing Capital Expense" defaults to the full
+# ``capex_annual`` so single-bucket users still see their capex.
+ARGUS_CASHFLOW_LOWER_ROWS: tuple[str, ...] = (
+    "Operating Expenses",
+    "  Real Estate Taxes",
+    "  Insurance",
+    "  Property Management Fee",
+    "  CAM",
+    "Total Operating Expenses",
+    "Net Operating Income",
+    "Leasing Costs",
+    "  Tenant Improvements",
+    "  Leasing Commissions",
+    "  Total Leasing Costs",
+    "Capital Expenditures",
+    "  Capital Reserves",
+    "  Non-Leasing Capital Expense",
+    "Total Capital Expenditures",
+    "Total Leasing & Capital Costs",
+    "Cash Flow Before Debt Service",
+    "Cash Flow Available for Distribution",
+)
+
+# Full Argus cashflow block — 16 top-line + 18 lower = 34 rows.
+ARGUS_CASHFLOW_ROWS: tuple[str, ...] = ARGUS_TOP_LINE_ROWS + ARGUS_CASHFLOW_LOWER_ROWS
+
+
 def argus_top_line_income(
     result: "UnderwritingResult",
     prop: Property,
@@ -222,6 +254,109 @@ def argus_top_line_income(
         raise ValueError(f"frequency must be 'monthly' or 'annual', got {frequency!r}")
 
     return _annualize_acquisition_anchored(out_monthly, prop.acquisition_date)
+
+
+def argus_cashflow_report(
+    result: "UnderwritingResult",
+    prop: Property,
+    frequency: str = "annual",
+) -> pd.DataFrame:
+    """Build the full Argus "Cash Flow" report — top-line income + opex +
+    leasing & capital costs + bottom-line cash flow.
+
+    Rows follow Argus's exact layout (``ARGUS_CASHFLOW_ROWS``). Section
+    headers and unsupported sub-rows return NaN. The top 16 rows match
+    ``argus_top_line_income``; the lower 18 rows cover:
+
+      Operating Expenses
+        Real Estate Taxes / Insurance / Property Mgmt Fee / CAM    NaN*
+      Total Operating Expenses                                     -opex
+      Net Operating Income                                          noi
+      Leasing Costs
+        Tenant Improvements                                         -ti
+        Leasing Commissions                                         -lc
+        Total Leasing Costs                                         -(ti+lc)
+      Capital Expenditures
+        Capital Reserves                                            NaN*
+        Non-Leasing Capital Expense                                 -capex
+      Total Capital Expenditures                                    -capex
+      Total Leasing & Capital Costs                                 -(ti+lc+capex)
+      Cash Flow Before Debt Service                                 noi - (ti+lc+capex)
+      Cash Flow Available for Distribution                          cfb_ds + debt_service
+
+    Reversion / sale proceeds are deliberately excluded from the CFB DS
+    and CFAD lines so the terminal year matches Argus's operating-only
+    presentation. Sale numbers live on ``UnderwritingResult.reversion``.
+
+    * Opex / capex sub-rows require ``Property.opex_categories`` and
+      ``Property.capex_categories`` (Phase B schema additions).
+
+    Sign convention: opex and capital costs come back **positive** (Argus
+    presents costs as positive in the operating-expense and capital-cost
+    sections). Use ``argus_top_line_income`` if you only need the income
+    portion.
+    """
+    cf = result.cashflows
+    if cf.empty:
+        raise ValueError("UnderwritingResult.cashflows is empty")
+
+    # Top-line block (income side, already validated to mirror Argus exactly
+    # on a stabilized year).
+    top = argus_top_line_income(result, prop, frequency="monthly")
+
+    months = cf.index
+    lower = pd.DataFrame(index=top.columns)
+
+    # Argus shows opex / leasing / capital costs as positive values; the
+    # engine stores them as negatives in the cashflow DataFrame.
+    noi = cf["noi"] if "noi" in cf.columns else pd.Series(0.0, index=months)
+    opex_pos = -cf["opex"] if "opex" in cf.columns else pd.Series(0.0, index=months)
+    ti_pos = -cf["ti"] if "ti" in cf.columns else pd.Series(0.0, index=months)
+    lc_pos = -cf["lc"] if "lc" in cf.columns else pd.Series(0.0, index=months)
+    capex_pos = -cf["capex"] if "capex" in cf.columns else pd.Series(0.0, index=months)
+    debt_service = (
+        cf["debt_service"] if "debt_service" in cf.columns else pd.Series(0.0, index=months)
+    )
+    # Cash Flow Before Debt Service is the OPERATING cash flow — NOI net of
+    # leasing & capital costs. Reversion / sale proceeds live in a separate
+    # report (``UnderwritingResult.reversion``) and are deliberately excluded
+    # here so the terminal year isn't polluted by the sale (which is how
+    # Argus presents it).
+    cfb_ds = noi - (ti_pos + lc_pos + capex_pos)
+    cfad = cfb_ds + debt_service  # debt_service is already negative on the cf
+
+    for header in ("Operating Expenses", "Leasing Costs", "Capital Expenditures"):
+        lower[header] = float("nan")
+    # Opex sub-categories — populated by Phase B (Property.opex_categories).
+    for sub in ("  Real Estate Taxes", "  Insurance", "  Property Management Fee", "  CAM"):
+        lower[sub] = float("nan")
+    lower["Total Operating Expenses"] = opex_pos.values
+    lower["Net Operating Income"] = cf["noi"].values if "noi" in cf.columns else 0.0
+    lower["  Tenant Improvements"] = ti_pos.values
+    lower["  Leasing Commissions"] = lc_pos.values
+    lower["  Total Leasing Costs"] = (ti_pos + lc_pos).values
+    # Capex sub-categories — Phase B will split via Property.capex_categories.
+    lower["  Capital Reserves"] = float("nan")
+    lower["  Non-Leasing Capital Expense"] = capex_pos.values
+    lower["Total Capital Expenditures"] = capex_pos.values
+    lower["Total Leasing & Capital Costs"] = (ti_pos + lc_pos + capex_pos).values
+    lower["Cash Flow Before Debt Service"] = cfb_ds.values
+    lower["Cash Flow Available for Distribution"] = cfad.values
+
+    lower_t = lower[list(ARGUS_CASHFLOW_LOWER_ROWS)].T
+    lower_t.index.name = "line_item"
+    lower_t.columns = top.columns  # both indexed by month
+
+    full_monthly = pd.concat([top, lower_t])
+    full_monthly.index.name = "line_item"
+
+    if frequency == "monthly":
+        return full_monthly
+
+    if frequency != "annual":
+        raise ValueError(f"frequency must be 'monthly' or 'annual', got {frequency!r}")
+
+    return _annualize_acquisition_anchored(full_monthly, prop.acquisition_date)
 
 
 def _potential_base_rent_monthly(prop: Property, months: pd.DatetimeIndex) -> pd.Series:

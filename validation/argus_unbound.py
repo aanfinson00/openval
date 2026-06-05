@@ -36,13 +36,14 @@ from pathlib import Path
 import pandas as pd
 
 from openval import (
+    ARGUS_CASHFLOW_ROWS,
     ARGUS_TOP_LINE_ROWS,
     ExpenseStructure,
     Lease,
     MarketLeasingAssumption,
     Property,
     RentStep,
-    argus_top_line_income,
+    argus_cashflow_report,
     project_property,
 )
 from openval.io import read_argus_cashflow_xls
@@ -83,6 +84,35 @@ ARGUS_PINNED: dict[str, list[int]] = {
     "Effective Gross Revenue":
         [1_623_097, 6_270_989, 6_459_116, 6_652_888, 6_852_473, 7_058_044,
          7_269_788, 7_487_885, 7_712_522, 7_943_891, 6_020_641],
+    # Lower block — opex through bottom-line cash flow.
+    "Total Operating Expenses":
+        [1_509_927, 1_739_191, 1_791_369, 1_845_107, 1_900_458, 1_957_474,
+         2_016_199, 2_076_688, 2_138_984, 2_203_152, 2_182_787],
+    "Net Operating Income":
+        [113_172, 4_531_798, 4_667_754, 4_807_783, 4_952_015, 5_100_577,
+         5_253_596, 5_411_204, 5_573_538, 5_740_739, 3_837_854],
+    # Leasing & capital cost rows + downstream cash flow (CFB DS / CFAD)
+    # are pinned in the harness but excluded from CI until the stub
+    # carries the matching ti_psf / lc_pct / capex_annual / capex_categories
+    # inputs (Phase B + stub extension).
+    "Tenant Improvements":
+        [7_643_630, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2_096_408],
+    "Leasing Commissions":
+        [4_428_240, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2_933_992],
+    "Total Leasing Costs":
+        [12_071_870, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5_030_400],
+    "Non-Leasing Capital Expense":
+        [6_522_072, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "Total Capital Expenditures":
+        [6_522_072, 0, 57_072, 58_776, 60_540, 62_352, 64_224, 66_156, 68_136, 70_188, 72_288],
+    "Total Leasing & Capital Costs":
+        [18_593_942, 0, 57_072, 58_776, 60_540, 62_352, 64_224, 66_156, 68_136, 70_188, 5_102_688],
+    "Cash Flow Before Debt Service":
+        [-18_480_772, 4_531_798, 4_610_682, 4_749_000, 4_891_475, 5_038_218,
+         5_189_365, 5_345_048, 5_505_397, 5_670_563, -1_264_834],
+    "Cash Flow Available for Distribution":
+        [-18_480_772, 4_531_798, 4_610_682, 4_749_000, 4_891_475, 5_038_218,
+         5_189_365, 5_345_048, 5_505_397, 5_670_563, -1_264_834],
 }
 
 # Window where we expect $-for-$ engine parity. Y1..Y10 inclusive — Y1
@@ -96,6 +126,10 @@ ARGUS_PINNED: dict[str, list[int]] = {
 STABILIZED_YEAR_INDEXES: tuple[int, ...] = tuple(range(0, 10))  # Y1..Y10 (0-indexed: 0..9)
 
 # Rows we lock in CI. Section headers and label-only rows are skipped (NaN).
+# The lower-block rows below ``Net Operating Income`` (Tenant Improvements,
+# Leasing Commissions, Capital Reserves, etc.) live in ``ARGUS_PINNED``
+# but aren't in STABILIZED_ROWS yet — they require the stub to carry the
+# matching ti_psf / lc_pct / capex_annual inputs, which Phase B will wire.
 STABILIZED_ROWS: tuple[str, ...] = (
     "Potential Base Rent",
     "Absorption & Turnover Vacancy",
@@ -107,6 +141,8 @@ STABILIZED_ROWS: tuple[str, ...] = (
     "Potential Gross Revenue",
     "Total Vacancy & Credit Loss",
     "Effective Gross Revenue",
+    "Total Operating Expenses",
+    "Net Operating Income",
 )
 
 # Derived for the lease builder — Argus PBR Y1..Y11 in PSF order.
@@ -217,28 +253,37 @@ FIXTURE_PATH = (
 
 
 def run_openval() -> pd.DataFrame:
-    """Build the stub property, run ``project_property``, return the Argus
-    top-line block for OpenVal. Standalone so tests can call it without
-    touching the Argus fixture.
+    """Build the stub property, run ``project_property``, return the full
+    Argus cashflow block for OpenVal. Standalone so tests can call it
+    without touching the Argus fixture.
     """
     prop = build_stub_property()
     result = project_property(prop)
-    return argus_top_line_income(result, prop)
+    return argus_cashflow_report(result, prop)
+
+
+def _pinned_label_to_row_label(pinned_label: str) -> str:
+    """Map an ``ARGUS_PINNED`` key (no indent in the dict for readability) to
+    the actual row label in ``ARGUS_CASHFLOW_ROWS`` (indent preserved).
+    """
+    if pinned_label in ARGUS_CASHFLOW_ROWS:
+        return pinned_label
+    indented = f"  {pinned_label}"
+    if indented in ARGUS_CASHFLOW_ROWS:
+        return indented
+    raise KeyError(f"{pinned_label!r} not found in ARGUS_CASHFLOW_ROWS")
 
 
 def pinned_drift() -> pd.DataFrame:
-    """Drift (OpenVal − pinned Argus, $) for every row in STABILIZED_ROWS
+    """Drift (OpenVal − pinned Argus, $) for every row in ARGUS_PINNED
     across all 11 years. Doesn't read the Argus fixture; uses ARGUS_PINNED.
     """
     openval = run_openval()
     years = list(openval.columns)[:11]
     rows = []
     for argus_label, argus_values in ARGUS_PINNED.items():
-        ov_row = openval.loc[f"  {argus_label}" if argus_label not in {
-            "Total Rental Revenue", "Total Tenant Revenue",
-            "Potential Gross Revenue", "Total Vacancy & Credit Loss",
-            "Effective Gross Revenue",
-        } else argus_label]
+        row_label = _pinned_label_to_row_label(argus_label)
+        ov_row = openval.loc[row_label]
         rows.append((argus_label, [ov_row.iloc[i] - argus_values[i] for i in range(11)]))
     return pd.DataFrame({label: vals for label, vals in rows}, index=years).T
 
@@ -273,11 +318,24 @@ def main() -> None:
         )
 
     cf = read_argus_cashflow_xls(FIXTURE_PATH)
-    argus_ann = cf.top_line_income("annual").reindex(ARGUS_TOP_LINE_ROWS)
+    # Build the full Argus block from the fixture by annualizing every row
+    # of the monthly grid (we use top_line_income for income + a manual
+    # annual rollup for the lower block, sharing the same fiscal anchoring).
+    import pandas as _pd
+    n_years = cf.monthly.shape[1] // 12
+    argus_full_monthly = cf.monthly.reindex(ARGUS_CASHFLOW_ROWS)
+    argus_ann = _pd.concat(
+        [
+            argus_full_monthly.iloc[:, y * 12 : (y + 1) * 12].sum(axis=1, min_count=1)
+            for y in range(n_years)
+        ],
+        axis=1,
+        keys=[f"Year {i + 1}" for i in range(n_years)],
+    )
 
     prop = build_stub_property()
     result = project_property(prop)
-    openval_ann = argus_top_line_income(result, prop)
+    openval_ann = argus_cashflow_report(result, prop)
 
     # Truncate to the shorter of the two (both should be 11 years).
     n = min(argus_ann.shape[1], openval_ann.shape[1])
@@ -316,7 +374,7 @@ def main() -> None:
     print(drift_pct.to_string(float_format=lambda x: f"{x:>14,.2f}%" if x == x else "          n/a"))
 
     print("\n" + "=" * 96)
-    print("  VERDICT — pinned tolerance check (Y1..Y10, every row, ±$25)")
+    print("  VERDICT — pinned tolerance check (Y1..Y10, STABILIZED_ROWS, ±$25)")
     print("=" * 96)
     try:
         assert_matches_argus(tolerance=25.0)

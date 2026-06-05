@@ -74,7 +74,7 @@ def _notes_sheet() -> pd.DataFrame:
         ("OUTPUT SHEETS (overwritten on each run)", ""),
         ("cashflows", "Monthly DCF detail. Columns: gross_rent, free_rent_abatement, general_vacancy, credit_loss, recoveries, egi, opex, noi, capex, ti, lc, debt_service, ncf_unlevered, ncf_levered, loan_balance"),
         ("annual_summary", "Year-by-year rollup of the above"),
-        ("top_line_income", "Argus-style top-line income block (Potential Base Rent → Effective Gross Revenue). Rows mirror the Argus 'Cash Flow' report; columns are fiscal years anchored on acquisition_date."),
+        ("cashflow_report", "Full Argus 'Cash Flow' block (Potential Base Rent → Cash Flow Available for Distribution). Rows mirror Argus Enterprise's report exactly; columns are fiscal years anchored on acquisition_date. Opex/capex sub-categories show blank until Property.opex_categories/capex_categories are populated."),
         ("reversion", "Terminal NOI, gross/net sale, loan payoff, net-to-equity, basis used"),
         ("irr_summary", "Unlevered + levered IRR under monthly_annualized, annual_end_of_year, annual_mid_year conventions. Plus equity multiples."),
         ("sensitivity", "5x5 grid: exit cap rate (rows) × acquisition price (cols), unlevered IRR cells (mid-year convention)"),
