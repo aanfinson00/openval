@@ -14,13 +14,21 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Make the openval package importable when this module is loaded from the
-# Vercel serverless function (`web/api/cashflow.py`) or from tests. The
-# repo root is two levels above this file.
-_ROOT = Path(__file__).resolve().parent.parent.parent
-_SRC = _ROOT / "src"
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
+# Make the openval package importable from:
+#   1. the Vercel function bundle, where `npm run build`'s prebuild step
+#      copied `src/openval` to `web/api/openval`. `Path(__file__).parent`
+#      is on sys.path automatically inside the function, but we add it
+#      defensively so this works under any wrapper.
+#   2. local pytest runs against a fresh checkout where the copy hasn't
+#      been made — fall back to the repo root's `src/`.
+_HERE = Path(__file__).resolve().parent
+_REPO_SRC = _HERE.parent.parent / "src"
+if (_HERE / "openval" / "__init__.py").exists():
+    _IMPORT_ROOT = _HERE
+else:
+    _IMPORT_ROOT = _REPO_SRC
+if str(_IMPORT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_IMPORT_ROOT))
 
 from openval import (  # noqa: E402
     Property,

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "copy-openval": "node scripts/copy-openval.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

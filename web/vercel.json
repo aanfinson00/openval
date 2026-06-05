@@ -3,15 +3,15 @@
   "functions": {
     "api/cashflow.py": {
       "runtime": "@vercel/python@4.3.1",
-      "includeFiles": "../src/openval/**"
+      "includeFiles": "api/openval/**"
     },
     "api/parse_workbook.py": {
       "runtime": "@vercel/python@4.3.1",
-      "includeFiles": "../src/openval/**"
+      "includeFiles": "api/openval/**"
     },
     "api/export_workbook.py": {
       "runtime": "@vercel/python@4.3.1",
-      "includeFiles": "../src/openval/**"
+      "includeFiles": "api/openval/**"
     }
   },
   "rewrites": [
