@@ -29,11 +29,15 @@ export type ErrorResponse = {
   detail?: string;
 };
 
+export type Frequency = "annual" | "monthly";
+
 export async function fetchCashflow(
   payload: PropertyPayload,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  frequency: Frequency = "annual"
 ): Promise<CashflowReport> {
-  const res = await fetch("/api/cashflow", {
+  const url = frequency === "monthly" ? "/api/cashflow?frequency=monthly" : "/api/cashflow";
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

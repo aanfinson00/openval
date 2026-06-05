@@ -1,11 +1,13 @@
 "use client";
 
-import type { CashflowReport, DealSummary } from "@/lib/api";
+import type { CashflowReport, DealSummary, Frequency } from "@/lib/api";
 
 type Props = {
   report: CashflowReport | null;
   loading: boolean;
   error: string | null;
+  frequency: Frequency;
+  onFrequencyChange: (next: Frequency) => void;
 };
 
 const fmt = (n: number | null): string => {
@@ -17,7 +19,13 @@ const fmt = (n: number | null): string => {
   return `${sign}${Math.round(abs).toLocaleString("en-US")}${close}`;
 };
 
-export function CashflowTable({ report, loading, error }: Props) {
+export function CashflowTable({
+  report,
+  loading,
+  error,
+  frequency,
+  onFrequencyChange,
+}: Props) {
   if (loading && !report) {
     return <Placeholder>Running OpenVal…</Placeholder>;
   }
@@ -34,9 +42,16 @@ export function CashflowTable({ report, loading, error }: Props) {
 
   return (
     <div className="overflow-auto h-full p-4">
-      <h1 className="text-lg font-semibold mb-1">{report.property_name}</h1>
+      <div className="flex items-center justify-between mb-1">
+        <h1 className="text-lg font-semibold">{report.property_name}</h1>
+        <FrequencyToggle value={frequency} onChange={onFrequencyChange} />
+      </div>
       <p className="text-xs text-slate-500 mb-3">
-        Argus-style Cash Flow report · fiscal years anchored on the acquisition month.
+        Argus-style Cash Flow report ·{" "}
+        {frequency === "monthly"
+          ? "monthly columns (engine-native grain)"
+          : "fiscal years anchored on the acquisition month"}
+        .
         {loading && <span className="ml-2 italic">refreshing…</span>}
       </p>
       {report.summary && <SummaryHeader summary={report.summary} />}
@@ -104,6 +119,32 @@ function isMajorTotal(label: string): boolean {
     "Cash Flow Before Debt Service",
     "Cash Flow Available for Distribution",
   ].includes(label);
+}
+
+function FrequencyToggle({
+  value,
+  onChange,
+}: {
+  value: Frequency;
+  onChange: (next: Frequency) => void;
+}) {
+  return (
+    <div className="inline-flex border border-slate-300 dark:border-slate-700 rounded text-xs overflow-hidden">
+      {(["annual", "monthly"] as Frequency[]).map((opt) => (
+        <button
+          key={opt}
+          onClick={() => onChange(opt)}
+          className={`px-2 py-1 ${
+            value === opt
+              ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+              : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+          }`}
+        >
+          {opt === "annual" ? "Annual" : "Monthly"}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 function SummaryHeader({ summary }: { summary: DealSummary }) {

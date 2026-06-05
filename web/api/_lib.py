@@ -65,24 +65,42 @@ def _jsonable_value(x: Any) -> Any:
     return f
 
 
-def build_cashflow_report(property_payload: dict) -> dict:
+def build_cashflow_report(
+    property_payload: dict, frequency: str = "annual"
+) -> dict:
     """Run the engine on a JSON Property payload, return a JSON cashflow
-    report. Frontend-friendly shape — rows + years + sign-indented labels.
+    report. Frontend-friendly shape — rows + columns + sign-indented labels.
+
+    ``frequency`` is "annual" (acquisition-anchored fiscal years, default)
+    or "monthly" (per-month columns labeled ``YYYY-MM``). Engine is monthly
+    natively; annual is a presentation aggregation.
 
     Raises:
         pydantic.ValidationError if the payload doesn't satisfy the
         ``Property`` schema. The handler should catch and return 400.
     """
+    if frequency not in ("annual", "monthly"):
+        raise ValueError(f"frequency must be 'annual' or 'monthly', got {frequency!r}")
     prop = Property.model_validate(property_payload)
     result = project_property(prop)
-    df = argus_cashflow_report(result, prop)
+    df = argus_cashflow_report(result, prop, frequency=frequency)
 
-    years = list(df.columns)
+    # Monthly columns are pandas Timestamps; format as YYYY-MM for stable
+    # client-side keys.
+    col_keys = list(df.columns)
+    if frequency == "monthly":
+        years = [
+            (c.strftime("%Y-%m") if hasattr(c, "strftime") else str(c))
+            for c in col_keys
+        ]
+    else:
+        years = [str(c) for c in col_keys]
+
     rows: list[dict] = []
     for label in ARGUS_CASHFLOW_ROWS:
         if label not in df.index:
             continue
-        values = [_jsonable_value(df.loc[label, y]) for y in years]
+        values = [_jsonable_value(df.loc[label, c]) for c in col_keys]
         rows.append(
             {
                 "label": label.strip(),

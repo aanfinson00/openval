@@ -35,12 +35,19 @@ class handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError as e:
             self._send_json(400, {"error": f"invalid JSON: {e}"})
             return
+        frequency = self._parse_frequency()
         try:
-            report = build_cashflow_report(payload)
+            report = build_cashflow_report(payload, frequency=frequency)
         except Exception as e:  # noqa: BLE001 — surface engine/validation errors verbatim
             self._send_json(400, {"error": type(e).__name__, "detail": str(e)})
             return
         self._send_json(200, report)
+
+    def _parse_frequency(self) -> str:
+        from urllib.parse import urlparse, parse_qs
+        qs = parse_qs(urlparse(self.path).query)
+        val = (qs.get("frequency") or qs.get("freq") or ["annual"])[0]
+        return "monthly" if val == "monthly" else "annual"
 
     def do_GET(self) -> None:
         # Health check + a hint at the expected POST shape.

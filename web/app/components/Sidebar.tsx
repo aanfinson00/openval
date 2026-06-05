@@ -29,9 +29,10 @@ const TABS: { key: TabKey; label: string }[] = [
 type Props = {
   payload: PropertyPayload;
   onChange: (next: PropertyPayload) => void;
+  onReset?: () => void;
 };
 
-export function Sidebar({ payload, onChange }: Props) {
+export function Sidebar({ payload, onChange, onReset }: Props) {
   const [active, setActive] = useState<TabKey>("property");
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -87,10 +88,18 @@ export function Sidebar({ payload, onChange }: Props) {
         {downloadError && (
           <div className="text-xs text-red-600">{downloadError}</div>
         )}
+        {onReset && (
+          <button
+            onClick={onReset}
+            className="w-full text-xs px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+          >
+            Reset to seed
+          </button>
+        )}
         <p className="text-xs text-slate-500 mt-1">
-          The downloaded .xlsx round-trips: drop it back on the upload zone
-          (or run <code>scripts/run_workbook.py</code> against it) to see
-          baked outputs.
+          Edits persist in this browser. Reset clears them and reloads
+          the Unbound Gateway seed. The downloaded .xlsx round-trips
+          back through the upload zone.
         </p>
       </div>
     </aside>
@@ -113,6 +122,23 @@ function PropertyTab({ payload, onChange }: Props) {
         value={asString(payload.acquisition_costs_pct)}
         placeholder="0"
         onChange={(v) => onChange({ ...payload, acquisition_costs_pct: v })}
+      />
+      <NumberField
+        label="opex_non_recoverable_pct"
+        value={asString(payload.opex_non_recoverable_pct)}
+        placeholder="0"
+        onChange={(v) => onChange({ ...payload, opex_non_recoverable_pct: v })}
+      />
+      <NumberField
+        label="opex_gross_up_at_occupancy_pct"
+        value={asString(payload.opex_gross_up_at_occupancy_pct)}
+        placeholder="0.95"
+        onChange={(v) => onChange({ ...payload, opex_gross_up_at_occupancy_pct: v })}
+      />
+      <YearMapEditor
+        title="cpi_series (year → CPI rate)"
+        map={(payload.cpi_series as Record<string, unknown>) || {}}
+        onChange={(next) => onChange({ ...payload, cpi_series: next })}
       />
     </>
   );
@@ -441,12 +467,83 @@ function LeaseEditor({
         mla={(lease.market_leasing_assumption as Record<string, unknown> | undefined) || null}
         onChange={(next) => setField("market_leasing_assumption", next)}
       />
+      <CpiEscalatorsEditor
+        escalators={(lease.cpi_escalators as Array<Record<string, unknown>>) || []}
+        onChange={(next) => setField("cpi_escalators", next)}
+      />
       <button
         onClick={onRemove}
         className="w-full text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950 dark:hover:bg-red-900"
       >
         Remove lease
       </button>
+    </div>
+  );
+}
+
+function CpiEscalatorsEditor({
+  escalators,
+  onChange,
+}: {
+  escalators: Array<Record<string, unknown>>;
+  onChange: (next: Array<Record<string, unknown>>) => void;
+}) {
+  const update = (idx: number, key: string, value: string) => {
+    const copy = escalators.slice();
+    copy[idx] = { ...copy[idx], [key]: value };
+    onChange(copy);
+  };
+  const remove = (idx: number) => {
+    const copy = escalators.slice();
+    copy.splice(idx, 1);
+    onChange(copy);
+  };
+  const add = () => {
+    const lastYear = escalators.length
+      ? Number(asString(escalators[escalators.length - 1].effective_date).slice(0, 4)) + 1
+      : new Date().getUTCFullYear() + 1;
+    onChange([
+      ...escalators,
+      { effective_date: `${lastYear}-01-01`, floor_pct: "0.02", ceiling_pct: "0.05" },
+    ]);
+  };
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <div className="text-xs uppercase tracking-wide text-slate-500">cpi_escalators</div>
+        <button onClick={add} className="text-xs text-emerald-700 hover:underline">+ escalator</button>
+      </div>
+      {escalators.length === 0 && (
+        <div className="text-[10px] text-slate-400 italic">
+          (none — add ones reading from Property.cpi_series)
+        </div>
+      )}
+      {escalators.map((esc, idx) => (
+        <div key={idx} className="grid grid-cols-[1fr_60px_60px_auto] gap-1 items-center">
+          <input
+            className="border border-slate-300 dark:border-slate-700 rounded px-1 py-0.5 bg-white dark:bg-slate-900 text-xs"
+            value={asString(esc.effective_date)}
+            placeholder="YYYY-MM-DD"
+            onChange={(e) => update(idx, "effective_date", e.target.value)}
+          />
+          <input
+            className="border border-slate-300 dark:border-slate-700 rounded px-1 py-0.5 bg-white dark:bg-slate-900 text-xs"
+            value={asString(esc.floor_pct)}
+            placeholder="floor"
+            onChange={(e) => update(idx, "floor_pct", e.target.value)}
+          />
+          <input
+            className="border border-slate-300 dark:border-slate-700 rounded px-1 py-0.5 bg-white dark:bg-slate-900 text-xs"
+            value={asString(esc.ceiling_pct)}
+            placeholder="ceiling"
+            onChange={(e) => update(idx, "ceiling_pct", e.target.value)}
+          />
+          <button onClick={() => remove(idx)} className="text-xs text-red-500 hover:text-red-700 px-1">
+            ×
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
